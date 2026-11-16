@@ -49,43 +49,19 @@ function SignIn({ onDone }: { onDone: () => void }) {
   const [show, setShow] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const FACTS: [string, string][] = [['66', 'wards'], ['2,739 km', 'sewer network planned'], ['1,14,345', 'manholes planned'], ['8', 'GWMC zones']];
-  const FEATURES: [string, string, string][] = [
-    ['map', 'Work on the satellite map', 'Draw work stretches on DPR pipes and manholes; update status from the field.'],
-    ['check', 'Compliance at every stage', 'Permissions, safety, testing and road restoration — recorded with photos and GPS, then verified.'],
-    ['alert', 'Issues and citizen grievances', 'Problems reported anywhere on the map; citizens complain by scanning the QR board at the site.'],
-    ['chart', 'Dashboards for every level', 'Progress, compliance, issues and grievances — city-wide, by zone, ward and sewerage zone.'],
-  ];
   return (
     <div className="login">
-      <section className="login-hero">
-        <svg className="login-net" viewBox="0 0 600 600" preserveAspectRatio="xMidYMid slice" aria-hidden>
-          <g fill="none" stroke="currentColor" strokeLinecap="round">
-            <path d="M-20 120 C120 140 180 60 300 90 S480 200 640 160" strokeWidth="3" />
-            <path d="M-20 300 C100 260 220 330 320 300 S520 240 640 290" strokeWidth="4" />
-            <path d="M80 -20 C110 120 60 240 140 360 S180 560 120 640" strokeWidth="2" />
-            <path d="M420 -20 C400 120 470 220 430 340 S380 520 460 640" strokeWidth="2.5" />
-            <path d="M-20 480 C160 450 260 520 380 470 S560 430 640 470" strokeWidth="2" />
-            <path d="M300 90 L320 300 L380 470" strokeWidth="1.5" strokeDasharray="4 6" />
-          </g>
-          <g fill="currentColor">
-            {[[300, 90], [320, 300], [380, 470], [140, 360], [430, 340], [60, 128], [520, 255], [210, 505]].map(([x, y]) => <circle key={`${x}-${y}`} cx={x} cy={y} r="5" />)}
-          </g>
-        </svg>
-        <div className="login-hero-in">
-          <div className="login-brand"><img src="/icon.svg" alt="" width={44} height={44} /><span>Warangal UGD Tracker</span></div>
-          <h1>Underground Drainage Project,<br />Greater Warangal</h1>
-          <p className="login-te" lang="te">గ్రేటర్ వరంగల్ మునిసిపల్ కార్పొరేషన్</p>
-          <p className="login-lead">One place to plan, build, check and monitor the city's sewer network — from the DPR to every road restored.</p>
-          <div className="login-facts">{FACTS.map(([n, l]) => <div key={l}><b>{n}</b><span>{l}</span></div>)}</div>
-          <ul className="login-feat">
-            {FEATURES.map(([icon, t, d]) => (
-              <li key={t}><span className={`lf-icon lf-${icon}`} aria-hidden /><div><b>{t}</b><span>{d}</span></div></li>
-            ))}
-          </ul>
-        </div>
-      </section>
-      <section className="login-side">
+      <div className="login-bg" aria-hidden />
+      <div className="login-shade" aria-hidden />
+      {/* sewer lines flowing across the city */}
+      <svg className="login-flow" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" aria-hidden>
+        <path d="M-50 640 C 300 600 520 700 820 610 S 1300 520 1650 560" />
+        <path d="M-50 380 C 260 420 520 330 800 400 S 1260 470 1650 380" />
+        <path d="M300 -50 C 360 240 280 480 420 700 S 520 900 480 1050" />
+        <path d="M1150 -50 C 1100 260 1230 460 1150 700 S 1080 900 1180 1050" />
+        <path d="M820 610 C 880 520 760 470 800 400" className="thin" />
+      </svg>
+      <main className="login-center">
         <form
           className="login-card"
           onSubmit={async (e) => {
@@ -102,10 +78,11 @@ function SignIn({ onDone }: { onDone: () => void }) {
             }
           }}
         >
-          <h2>Sign in</h2>
-          <p className="muted">Use the GWMC account given to you.</p>
+          <div className="login-mark"><img src="/icon.svg" alt="" width={56} height={56} /></div>
+          <h1>Warangal UGD Tracker</h1>
+          <p className="login-sub">Greater Warangal Municipal Corporation</p>
           <label>
-            User ID (email)
+            User ID
             <input type="email" autoComplete="username" placeholder="name@gwmc.local" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
           </label>
           <label>
@@ -121,17 +98,14 @@ function SignIn({ onDone }: { onDone: () => void }) {
               </button>
             </span>
           </label>
-          {error && <p className="error">{error}</p>}
-          <button className="primary big" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
-          <div className="login-roles">
-            For the Contractor, PIU, PMU, PGDMC, Commissioner and Financial Institution — each sees what their role needs.
-          </div>
+          {error && <p className="login-error">{error}</p>}
+          <button className="login-btn" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}<span aria-hidden>→</span></button>
         </form>
-        <div className="login-citizen">
-          <b>Citizen?</b> Scan the QR board at the work site to report a problem, or <a href="/g/status">check the status of your complaint</a>.
-        </div>
-        <footer className="login-foot">Greater Warangal Municipal Corporation · For official use</footer>
-      </section>
+      </main>
+      <footer className="login-foot">
+        <a href="/g/status">Citizen complaint status</a>
+        <span>Background: Sentinel-2 cloudless 2016 by EOX (Copernicus data)</span>
+      </footer>
     </div>
   );
 }
