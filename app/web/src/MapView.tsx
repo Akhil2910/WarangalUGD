@@ -16,6 +16,7 @@ import { CompliancePage } from './works/CompliancePage.tsx';
 import { IssuesPage, type IssueRow } from './works/IssuesPage.tsx';
 import { WorkPanel, newWork, type Preview, type WorkState } from './works/WorkPanel.tsx';
 import { FontButtons } from './ui.tsx';
+import { AreaSummary } from './works/AreaSummary.tsx';
 import { addUtilityIcons, utilIconUrl } from './utilIcons.ts';
 // MapLibre 6 runs its tile parsing in a separate worker file; let Vite bundle it and tell MapLibre where it is.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
@@ -25,7 +26,7 @@ let protocolAdded = false;
 
 interface SearchResult { kind: string; label: string; detail: string; lon: number; lat: number }
 type BBox = [number, number, number, number];
-interface Boundary { type: 'wards' | 'admin' | 'sewerzones'; key: string | number; name: string; info: string; bbox: BBox; ward?: number; zone?: string }
+interface Boundary { type: 'wards' | 'admin' | 'sewerzones'; key: string | number; name: string; info: string; bbox: BBox; ward?: number; zone?: string; sewer?: string }
 type GeoFC = { features: { properties: Record<string, unknown>; geometry: { type: string; coordinates: unknown } }[] };
 interface SitePipe { id: number; code: string; length_m: number; dia_mm: number; stretch: string }
 
@@ -101,7 +102,7 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
       container: box.current,
       style: buildStyle(meta, location.origin),
       bounds: meta.bounds as BBox,
-      maxBounds: [meta.bounds[0] - 0.1, meta.bounds[1] - 0.1, meta.bounds[2] + 0.1, meta.bounds[3] + 0.1],
+      maxBounds: [meta.bounds[0] - 0.35, meta.bounds[1] - 0.2, meta.bounds[2] + 0.35, meta.bounds[3] + 0.2],
       hash: 'map',
       maxZoom: 21,
       attributionControl: { compact: true },
@@ -471,9 +472,9 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
       const full = boundaries.current[type]?.features.find((x) => (type === 'wards' ? Number(x.properties.ward) : type === 'admin' ? x.properties.zone_id : x.properties.name) === key);
       const bbox = bboxOf((full ?? f).geometry.coordinates);
       if (type === 'wards')
-        setBoundary({ type, key, name: `Ward ${p.ward}`, info: `Zone ${p.admin_zone}${p.corporator ? ` · Corporator ${p.corporator}` : ''}`, bbox, ward: Number(p.ward) });
+        setBoundary({ type, key, name: `Ward ${p.ward}`, info: `GWMC zone ${p.admin_zone}`, bbox, ward: Number(p.ward) });
       else if (type === 'admin') setBoundary({ type, key, name: String(p.name), info: `Zone ${p.zone_id}`, bbox, zone: String(p.zone_id) });
-      else setBoundary({ type, key, name: String(p.name), info: 'Sewerage zone', bbox });
+      else setBoundary({ type, key, name: String(p.name), info: 'Sewerage zone', bbox, sewer: String(p.name).replace(/^Sewer(age)? zone\s*/i, '') });
       return;
     }
     setBoundary(null);
@@ -617,7 +618,8 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
             )}
             {boundary && (
               <div className="boundary-box">
-                <div><b>{boundary.name}</b> <span className="muted">{boundary.info}</span></div>
+                <div className="boundary-title"><b>{boundary.name}</b> <span className="muted">{boundary.info}</span></div>
+                <AreaSummary filter={{ ward: boundary.ward, zone: boundary.zone, sewer: boundary.sewer }} />
                 <div className="row-btns">
                   <button className="btn" onClick={() => fit(boundary.bbox, 16)}>Zoom to</button>
                   {(boundary.ward || boundary.zone) && (

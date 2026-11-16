@@ -13,7 +13,7 @@ export interface Meta {
 
 /** The few on/off switches in the Layers box. */
 export const LAYER_GROUPS = [
-  { key: 'imagery', label: 'Satellite image', default: true, layers: ['imagery-preview', 'imagery'] },
+  { key: 'imagery', label: 'Satellite image', default: true, layers: ['world-imagery', 'imagery-preview', 'imagery'] },
   { key: 'work', label: 'Work stretches', default: true, layers: ['site-stretch-casing', 'site-stretch-labels', 'stretch-badges'] },
   { key: 'dpr', label: 'DPR pipes and manholes (plan)', default: true, layers: ['pipes-major', 'pipes', 'manholes', 'manhole-labels', 'stations', 'station-labels'] },
   { key: 'drawn', label: 'Drawn pipes and manholes', default: true, layers: ['site-pipes', 'site-manholes', 'site-mh-labels'] },
@@ -44,6 +44,12 @@ export function buildStyle(meta: Meta, origin: string): StyleSpecification {
     version: 8,
     glyphs: `${origin}/fonts/{fontstack}/{range}.pbf`,
     sources: {
+      // outside the city: open Sentinel-2 satellite image (10 m, 2016, CC BY 4.0), so the map is never blank around the city
+      world_imagery: {
+        type: 'raster', tileSize: 256, maxzoom: 15,
+        tiles: ['https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg'],
+        attribution: 'Surroundings: Sentinel-2 cloudless 2016 by EOX IT Services GmbH (contains modified Copernicus Sentinel data)',
+      },
       ...(meta.imagery_preview_available
         ? { imagery_preview: { type: 'raster', url: pm('imagery_preview.pmtiles'), tileSize: 256, attribution: meta.imagery_credit } as const }
         : {}),
@@ -65,6 +71,8 @@ export function buildStyle(meta: Meta, origin: string): StyleSpecification {
     },
     layers: [
       { id: 'background', type: 'background', paint: { 'background-color': '#e5e7eb' } },
+      // slightly muted, so the city's own sharper image stands out
+      { id: 'world-imagery', type: 'raster', source: 'world_imagery', paint: { 'raster-saturation': -0.25, 'raster-brightness-max': 0.9 } },
       ...(meta.imagery_preview_available ? [{ id: 'imagery-preview', type: 'raster' as const, source: 'imagery_preview' }] : []),
       ...(meta.imagery_available ? [{ id: 'imagery', type: 'raster' as const, source: 'imagery' }] : []),
       // boundaries: invisible fills make them tappable; "-sel" outlines the selected one

@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { COMPLIANCE_STAGES, STAGES } from 'shared';
 import { api } from '../api.ts';
 import { fmtTime } from './util.tsx';
+import { ACCENT, heat, KpiCard, Meter, RankBars, Ring, Sparkline, StackBar, STATUS, StatusIcon, TrendChart } from '../charts.tsx';
 
 interface Fig {
   works: { count: number; km: number; pipe_laid_m: number; restored_m: number; approved_m: number; manholes_planned: number; manholes_built: number; laid_pct_of_works: number;
@@ -27,7 +28,7 @@ interface Dash {
 type View = 'overall' | 'areas' | 'progress' | 'compliance' | 'issues' | 'grievances' | 'activity';
 const VIEWS: [View, string][] = [['overall', 'Overall'], ['areas', 'By area'], ['progress', 'Work progress'], ['compliance', 'Compliance'], ['issues', 'Issues'], ['grievances', 'Grievances'], ['activity', 'Field activity']];
 const LEVEL_LABEL = { zone: 'GWMC zone', ward: 'Ward', sewer: 'Sewerage zone' } as const;
-const nf = (n: number) => n.toLocaleString('en-IN');
+const nf = (n: number, dg = 0) => n.toLocaleString('en-IN', { maximumFractionDigits: dg });
 const km = (m: number) => (m / 1000).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
 function download(name: string, head: string[], rows: (string | number | null)[][]) {
@@ -69,7 +70,7 @@ export function DashboardPage({ zones, onOpenStretch }: { zones: { id: string }[
       {err && <p className="error">{err}</p>}
       {!d ? <p className="muted">Loading…</p> : (
         <>
-          {view === 'overall' && <Overall d={d} />}
+          {view === 'overall' && <Overall d={d} onOpenStretch={onOpenStretch} go={setView} />}
           {view === 'areas' && <Areas d={d} level={level} setLevel={setLevel} onDrill={(k) => {
             if (level === 'zone') { setF({ zone: k, ward: '', sewer: '' }); setLevel('ward'); } else if (level === 'ward') setF({ ...f, ward: k }); else setF({ zone: '', ward: '', sewer: k });
           }} />}
@@ -85,111 +86,91 @@ export function DashboardPage({ zones, onOpenStretch }: { zones: { id: string }[
 }
 
 // ---------------- building blocks ----------------
-function Tile({ label, value, sub, tone }: { label: string; value: string | number; sub?: string; tone?: 'bad' | 'good' }) {
-  return <div className={`tile ${tone ?? ''}`}><span>{label}</span><b>{value}</b>{sub && <small>{sub}</small>}</div>;
+function Section({ title, children, action, sub }: { title: string; children: React.ReactNode; action?: React.ReactNode; sub?: string }) {
+  return <section className="dsec"><div className="dsec-head"><div><h3>{title}</h3>{sub && <div className="dsec-sub">{sub}</div>}</div>{action}</div>{children}</section>;
 }
-function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
-  return <section className="dsec"><div className="dsec-head"><h3>{title}</h3>{action}</div>{children}</section>;
-}
-/** Horizontal bars: one measure, labelled, value at the end, hover tip. */
-function Bars({ rows, unit = '', color = 'var(--accent)' }: { rows: { label: string; value: number; tip?: string; color?: string }[]; unit?: string; color?: string }) {
-  const max = Math.max(1, ...rows.map((r) => r.value));
-  if (!rows.length) return <p className="muted">Nothing yet.</p>;
+const pctStatus = (v: number | null, good = 90, watch = 60): keyof typeof STATUS => (v === null ? 'none' : v >= good ? 'good' : v >= watch ? 'watch' : 'bad');
+const series = (d: Dash, f: keyof Dash['trend'][number]) => d.trend.map((x) => Number(x[f]));
+const dates = (d: Dash) => d.trend.map((x) => x.date);
+
+/** The headline row used on several views. */
+function Headline({ d, go }: { d: Dash; go: (v: View) => void }) {
+  const o = d.overall;
+  const laidPct = o.plan.km ? (o.works.pipe_laid_m / 1000 / o.plan.km) * 100 : 0;
+  const cs = o.compliance.score;
   return (
-    <div className="hbars">
-      {rows.map((r) => (
-        <div key={r.label} className="hbar" title={r.tip ?? `${r.label}: ${nf(r.value)}${unit}`}>
-          <span className="hbar-label">{r.label}</span>
-          <span className="hbar-track"><span className="hbar-fill" style={{ width: `${(r.value / max) * 100}%`, background: r.color ?? color }} /></span>
-          <span className="hbar-val">{nf(r.value)}{unit}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-/** 30-day column chart of one measure, with a hover tip on each day. */
-function Columns({ data, field, label, color = 'var(--accent)' }: { data: Dash['trend']; field: keyof Dash['trend'][number]; label: string; color?: string }) {
-  const vals = data.map((x) => Number(x[field]));
-  const max = Math.max(1, ...vals);
-  const total = vals.reduce((a, b) => a + b, 0);
-  return (
-    <div className="cols-box">
-      <div className="cols-title">{label} <span className="muted">· {nf(total)} in 30 days</span></div>
-      <div className="cols">
-        {data.map((x, i) => (
-          <span key={x.date} className="col" title={`${x.date}: ${nf(vals[i])}`}>
-            <span className="col-fill" style={{ height: `${(vals[i] / max) * 100}%`, background: color }} />
-          </span>
-        ))}
-      </div>
-      <div className="cols-axis"><span>{data[0]?.date.slice(5)}</span><span>max {nf(max)}</span><span>{data[data.length - 1]?.date.slice(5)}</span></div>
-    </div>
-  );
-}
-function StageStrip({ by }: { by: Fig['works']['by_stage'] }) {
-  const total = by.reduce((a, s) => a + s.m, 0);
-  return (
-    <div>
-      <div className="stage-strip big">{by.filter((s) => s.m).map((s) => <span key={s.stage} title={`${s.label}: ${s.n} work stretches, ${km(s.m)} km`} style={{ width: `${(s.m / (total || 1)) * 100}%`, background: s.color }} />)}</div>
-      <div className="legend-row">{by.map((s) => <span key={s.stage}><i style={{ background: s.color }} />{s.label} · {s.n}</span>)}</div>
-    </div>
-  );
-}
-function PlanBar({ laid, plan }: { laid: number; plan: number }) {
-  const pct = plan ? (laid / 1000 / plan) * 100 : 0;
-  return (
-    <div className="plan-bar" title={`${km(laid)} km laid of ${nf(plan)} km planned in the DPR`}>
-      <div className="plan-track"><span style={{ width: `${Math.min(100, pct)}%` }} /></div>
-      <div className="small"><b>{pct.toFixed(2)}%</b> of the DPR plan laid · {km(laid)} of {nf(plan)} km</div>
+    <div className="kpis">
+      <KpiCard label="Pipe laid" value={km(o.works.pipe_laid_m)} unit=" km" note={<>{laidPct < 1 ? laidPct.toFixed(2) : laidPct.toFixed(1)}% of the DPR plan ({nf(o.plan.km)} km)</>} onClick={() => go('progress')}>
+        <Sparkline values={series(d, 'laid_m')} label="Metres laid per day, last 30 days" />
+      </KpiCard>
+      <KpiCard label="Work stretches" value={nf(o.works.count)} note={`${km(o.works.km * 1000)} km of pipe · ${o.works.waiting_approval} awaiting approval`} onClick={() => go('progress')}>
+        <div className="mini-stack">{o.works.by_stage.filter((x) => x.n).map((x) => <span key={x.stage} style={{ flexGrow: x.n, background: x.color }} title={`${x.label}: ${x.n}`} />)}</div>
+      </KpiCard>
+      <KpiCard label="Compliance score" value={cs === null ? '—' : `${cs}`} unit={cs === null ? '' : '%'} status={pctStatus(cs)}
+        statusText={cs === null ? 'Nothing due yet' : o.compliance.overdue ? `${o.compliance.overdue} overdue` : o.compliance.to_verify ? `${o.compliance.to_verify} waiting for verification` : 'On track'} note="verified ÷ due" onClick={() => go('compliance')} />
+      <KpiCard label="Open issues" value={nf(o.issues.open)} status={o.issues.high ? 'bad' : o.issues.open ? 'watch' : 'good'}
+        statusText={o.issues.high ? `${o.issues.high} high severity` : o.issues.open ? 'None high severity' : 'None open'} note={`${o.issues.overdue} overdue · ${nf(o.issues.resolved)} resolved`} onClick={() => go('issues')}>
+        <Sparkline values={series(d, 'issues_opened')} color="#b45309" label="Issues raised per day" />
+      </KpiCard>
+      <KpiCard label="Citizen grievances open" value={nf(o.grievances.open)} status={o.grievances.overdue ? 'bad' : o.grievances.open ? 'watch' : 'good'}
+        statusText={o.grievances.overdue ? `${o.grievances.overdue} past 3 days` : o.grievances.open ? 'All within 3 days' : 'None open'}
+        note={`${nf(o.grievances.total)} received · ${o.grievances.on_time_pct === null ? '—' : `${o.grievances.on_time_pct}%`} answered on time`} onClick={() => go('grievances')}>
+        <Sparkline values={series(d, 'grievances')} color="#7c3aed" label="Grievances received per day" />
+      </KpiCard>
     </div>
   );
 }
 
-// ---------------- views ----------------
-function Overall({ d }: { d: Dash }) {
+/** What needs someone's attention now. */
+function Attention({ d, onOpenStretch, go }: { d: Dash; onOpenStretch: (c: string) => void; go: (v: View) => void }) {
   const o = d.overall;
+  const items: { s: keyof typeof STATUS; text: string; act: () => void }[] = [];
+  if (o.compliance.overdue) items.push({ s: 'bad', text: `${o.compliance.overdue} compliance item(s) overdue`, act: () => go('compliance') });
+  if (o.compliance.not_complied) items.push({ s: 'bad', text: `${o.compliance.not_complied} compliance item(s) marked not complied`, act: () => go('compliance') });
+  if (o.issues.high) items.push({ s: 'bad', text: `${o.issues.high} high-severity issue(s) open`, act: () => go('issues') });
+  if (o.grievances.overdue) items.push({ s: 'bad', text: `${o.grievances.overdue} citizen grievance(s) past the 3-day limit`, act: () => go('grievances') });
+  if (o.compliance.to_verify) items.push({ s: 'watch', text: `${o.compliance.to_verify} compliance record(s) waiting for verification`, act: () => go('compliance') });
+  if (o.works.waiting_approval) items.push({ s: 'watch', text: `${o.works.waiting_approval} restoration(s) waiting for approval`, act: () => go('progress') });
+  for (const s of d.idle.slice(0, 4)) items.push({ s: 'watch', text: `${s.code} ${s.name}: no update since ${fmtTime(s.last_update)}`, act: () => onOpenStretch(s.code) });
+  return (
+    <Section title="Needs attention" sub={items.length ? `${items.length} item${items.length === 1 ? '' : 's'}` : undefined}>
+      {!items.length ? <div className="all-good"><StatusIcon s="good" /> Nothing overdue. Everything is on track.</div> : (
+        <div className="attn">{items.map((i, k) => <button key={k} className="attn-row" onClick={i.act}><StatusIcon s={i.s} /><span className="grow">{i.text}</span><span className="muted">›</span></button>)}</div>
+      )}
+    </Section>
+  );
+}
+
+// ---------------- views ----------------
+function Overall({ d, onOpenStretch, go }: { d: Dash; onOpenStretch: (c: string) => void; go: (v: View) => void }) {
+  const o = d.overall;
+  const top = [...d.areas].sort((a, b) => b.laid_pct_of_plan - a.laid_pct_of_plan);
   return (
     <div className="dgrid">
-      <Section title="Work progress">
-        <PlanBar laid={o.works.pipe_laid_m} plan={o.plan.km} />
-        <div className="tiles">
-          <Tile label="Work stretches" value={nf(o.works.count)} sub={`${o.works.km} km of pipe`} />
-          <Tile label="Pipe laid" value={`${km(o.works.pipe_laid_m)} km`} sub={`${o.works.laid_pct_of_works}% of the work stretches`} />
-          <Tile label="Manholes built" value={nf(o.works.manholes_built)} sub={`of ${nf(o.works.manholes_planned)} in work stretches · DPR ${nf(o.plan.manholes)}`} />
-          <Tile label="Roads restored" value={`${km(o.works.restored_m)} km`} sub={`${km(o.works.approved_m)} km approved · ${o.works.waiting_approval} waiting`} />
-        </div>
-        <StageStrip by={o.works.by_stage} />
-      </Section>
-      <Section title="Compliance">
-        <div className="tiles">
-          <Tile label="Score (verified ÷ due)" value={o.compliance.score === null ? '—' : `${o.compliance.score}%`} />
-          <Tile label="Waiting for verification" value={nf(o.compliance.to_verify)} />
-          <Tile label="Overdue" value={nf(o.compliance.overdue)} tone={o.compliance.overdue ? 'bad' : undefined} />
-          <Tile label="Not complied" value={nf(o.compliance.not_complied)} tone={o.compliance.not_complied ? 'bad' : undefined} />
-        </div>
-      </Section>
-      <Section title="Issues">
-        <div className="tiles">
-          <Tile label="Open" value={nf(o.issues.open)} />
-          <Tile label="High severity open" value={nf(o.issues.high)} tone={o.issues.high ? 'bad' : undefined} />
-          <Tile label="Overdue" value={nf(o.issues.overdue)} tone={o.issues.overdue ? 'bad' : undefined} />
-          <Tile label="Days to resolve (average)" value={o.issues.avg_days_to_resolve ?? '—'} sub={`${nf(o.issues.resolved)} resolved`} />
-        </div>
-      </Section>
-      <Section title="Grievances">
-        <div className="tiles">
-          <Tile label="Received" value={nf(o.grievances.total)} />
-          <Tile label="Open" value={nf(o.grievances.open)} />
-          <Tile label="Overdue" value={nf(o.grievances.overdue)} tone={o.grievances.overdue ? 'bad' : undefined} />
-          <Tile label="Answered on time" value={o.grievances.on_time_pct === null ? '—' : `${o.grievances.on_time_pct}%`} />
-        </div>
-      </Section>
+      <Headline d={d} go={go} />
+      <div className="dcols">
+        <Section title="Against the DPR plan" sub="Actual work compared with the full sewerage plan">
+          <Meter label="Sewer pipe laid" value={o.works.pipe_laid_m / 1000} target={o.plan.km} unit=" km" digits={2} />
+          <Meter label="Manholes built" value={o.works.manholes_built} target={o.plan.manholes} />
+          <Meter label="Roads restored (of pipe laid)" value={o.works.restored_m / 1000} target={Math.max(o.works.pipe_laid_m / 1000, 0)} unit=" km" digits={2} color={STATUS.good}
+            note={`${km(o.works.approved_m)} km approved`} />
+        </Section>
+        <Section title="Work stretches by stage" sub="Length of pipe in each stage">
+          <StackBar parts={o.works.by_stage.map((x) => ({ label: x.label, value: Math.round(x.m), color: x.color, note: `${x.n}` }))} unit=" m" />
+        </Section>
+      </div>
+      <div className="dcols">
+        <Attention d={d} onOpenStretch={onOpenStretch} go={go} />
+        <Section title="Progress by GWMC zone" sub="Share of each zone's DPR plan laid · tap a zone in “By area” to look inside">
+          <RankBars rows={top.map((a) => ({ key: a.key, label: a.key, value: a.laid_pct_of_plan, tip: `${a.key}: ${a.laid_pct_of_plan}% of ${nf(a.plan.km)} km planned · ${a.works.count} work stretches` }))} unit="%" digits={2} />
+        </Section>
+      </div>
       <Section title="Last 30 days">
-        <div className="cols-grid">
-          <Columns data={d.trend} field="laid_m" label="Metres of pipe laid" />
-          <Columns data={d.trend} field="updates" label="Status updates" />
-          <Columns data={d.trend} field="issues_opened" label="Issues raised" />
-          <Columns data={d.trend} field="grievances" label="Grievances received" />
+        <div className="trend-grid">
+          <TrendChart title="Pipe laid per day" dates={dates(d)} series={[{ label: 'Laid', values: series(d, 'laid_m'), color: ACCENT }]} unit=" m" />
+          <TrendChart title="Status updates per day" dates={dates(d)} series={[{ label: 'Updates', values: series(d, 'updates'), color: '#0f766e' }]} />
+          <TrendChart title="Issues" dates={dates(d)} series={[{ label: 'Raised', values: series(d, 'issues_opened'), color: '#b45309' }, { label: 'Resolved', values: series(d, 'issues_resolved'), color: STATUS.good }]} />
+          <TrendChart title="Citizen grievances" dates={dates(d)} series={[{ label: 'Received', values: series(d, 'grievances'), color: '#7c3aed' }, { label: 'Resolved', values: series(d, 'grievances_resolved'), color: STATUS.good }]} />
         </div>
       </Section>
     </div>
@@ -231,9 +212,9 @@ function Areas({ d, level, setLevel, onDrill }: { d: Dash; level: 'zone' | 'ward
                 <td>{nf(a.plan.km)}</td>
                 <td>{a.works.count}</td>
                 <td>{nf(a.works.pipe_laid_m)}</td>
-                <td title={`${a.laid_pct_of_plan}% of the DPR plan laid`}><span className="mini-bar"><span style={{ width: `${(a.laid_pct_of_plan / maxPct) * 100}%` }} /></span> {a.laid_pct_of_plan}%</td>
+                <td className="fig" style={{ background: heat(a.laid_pct_of_plan, maxPct) }} title={`${a.laid_pct_of_plan}% of the DPR plan laid`}>{a.laid_pct_of_plan}%</td>
                 <td>{nf(a.works.restored_m)}</td>
-                <td>{a.compliance.score === null ? '—' : `${a.compliance.score}%`}</td>
+                <td className="fig">{a.compliance.score === null ? '—' : <span className="score" style={{ color: STATUS[pctStatus(a.compliance.score)] }}>{a.compliance.score}%</span>}</td>
                 <td className={a.compliance.overdue ? 'error' : ''}>{a.compliance.overdue}</td>
                 <td>{a.issues.open}</td>
                 <td className={a.issues.overdue ? 'error' : ''}>{a.issues.overdue}</td>
@@ -251,10 +232,17 @@ function Progress({ d, onOpenStretch }: { d: Dash; onOpenStretch: (c: string) =>
   const o = d.overall;
   return (
     <div className="dgrid">
-      <Section title="Work stretches by stage (km)">
-        <Bars rows={o.works.by_stage.map((s) => ({ label: s.label, value: Math.round(s.m), color: s.color, tip: `${s.label}: ${s.n} work stretches, ${km(s.m)} km` }))} unit=" m" />
-      </Section>
-      <Section title="Pipe laid per day"><Columns data={d.trend} field="laid_m" label="Metres laid" /></Section>
+      <div className="dcols">
+        <Section title="Work stretches by stage" sub="Length of pipe in each stage · number of work stretches">
+          <StackBar parts={o.works.by_stage.map((x) => ({ label: x.label, value: Math.round(x.m), color: x.color, note: `${x.n}` }))} unit=" m" />
+        </Section>
+        <Section title="Against the DPR plan">
+          <Meter label="Sewer pipe laid" value={o.works.pipe_laid_m / 1000} target={o.plan.km} unit=" km" digits={2} />
+          <Meter label="Pipe laid within the work stretches" value={o.works.pipe_laid_m / 1000} target={o.works.km} unit=" km" digits={2} />
+          <Meter label="Manholes built" value={o.works.manholes_built} target={o.works.manholes_planned} note={`DPR total ${nf(o.plan.manholes)}`} />
+        </Section>
+      </div>
+      <Section title="Pipe laid per day"><TrendChart title="Metres laid" dates={dates(d)} series={[{ label: 'Laid', values: series(d, 'laid_m'), color: ACCENT }]} unit=" m" height={170} /></Section>
       <Section title={`No update for 7 days (${d.idle.length})`}>
         {!d.idle.length ? <p className="muted">None — every started work stretch was updated this week.</p> : (
           <div className="list">{d.idle.map((s) => <div key={s.code} className="list-row" onClick={() => onOpenStretch(s.code)}><div className="grow"><b>{s.code}</b> {s.name}<div className="muted small">Ward {s.ward} · last update {fmtTime(s.last_update)}</div></div></div>)}</div>
@@ -272,7 +260,7 @@ function Progress({ d, onOpenStretch }: { d: Dash; onOpenStretch: (c: string) =>
                   <tr key={s.code} onClick={() => onOpenStretch(s.code)}>
                     <td><b>{s.code}</b> <span className="muted">{s.name}</span></td><td>{s.ward}</td><td>{s.length_m} m</td>
                     <td><span className="dot" style={{ background: st.color }} /> {st.label}</td>
-                    <td title={`${s.laid_m} of ${s.length_m} m`}><span className="mini-bar"><span style={{ width: `${(s.laid_m / (s.length_m || 1)) * 100}%` }} /></span> {s.laid_m} m</td>
+                    <td title={`${s.laid_m} of ${s.length_m} m`}><span className="mini-bar"><span style={{ width: `${(s.laid_m / (s.length_m || 1)) * 100}%` }} /></span> <span className="fig">{s.laid_m} m</span></td>
                     <td>{s.score === null ? '—' : `${s.score}%`}{s.overdue ? <span className="error"> · {s.overdue} overdue</span> : null}</td>
                     <td>{s.open_issues}</td><td>{s.grievances_open}</td>
                   </tr>
@@ -288,30 +276,50 @@ function Progress({ d, onOpenStretch }: { d: Dash; onOpenStretch: (c: string) =>
 
 function Compliance({ d, onOpenStretch }: { d: Dash; onOpenStretch: (c: string) => void }) {
   const c = d.overall.compliance;
+  const st = pctStatus(c.score);
+  const byStage = COMPLIANCE_STAGES.map((s) => {
+    const items = d.compliance_items.filter((i) => i.stage === s.key);
+    return { s, verified: items.reduce((a, i) => a + i.verified, 0), waiting: items.reduce((a, i) => a + i.waiting, 0), not: items.reduce((a, i) => a + i.not_complied, 0) };
+  }).filter((x) => x.verified + x.waiting + x.not > 0);
   return (
     <div className="dgrid">
-      <div className="tiles">
-        <Tile label="Score (verified ÷ due)" value={c.score === null ? '—' : `${c.score}%`} />
-        <Tile label="Mandatory items due" value={nf(c.due)} />
-        <Tile label="Waiting for verification" value={nf(c.to_verify)} />
-        <Tile label="Overdue" value={nf(c.overdue)} tone={c.overdue ? 'bad' : undefined} />
-        <Tile label="Not complied" value={nf(c.not_complied)} tone={c.not_complied ? 'bad' : undefined} />
+      <div className="dcols">
+        <Section title="Compliance score" sub="Mandatory items verified ÷ items due">
+          <div className="score-row">
+            <Ring pct={c.score} color={STATUS[st]} label="Compliance score" size={110} />
+            <div className="score-facts">
+              <div><StatusIcon s={st} /> <b>{c.score === null ? 'Nothing due yet' : st === 'good' ? 'Good' : st === 'watch' ? 'Needs watching' : 'Behind'}</b></div>
+              <div><span className="fig">{nf(c.due)}</span> items due</div>
+              <div><span className="fig">{nf(c.verified)}</span> verified · <span className="fig">{nf(c.to_verify)}</span> waiting for verification</div>
+              <div className={c.overdue ? 'error' : ''}><span className="fig">{nf(c.overdue)}</span> overdue</div>
+              <div className={c.not_complied ? 'error' : ''}><span className="fig">{nf(c.not_complied)}</span> not complied</div>
+            </div>
+          </div>
+        </Section>
+        <Section title="Records by work stage" sub="Verified, waiting and not complied">
+          {!byStage.length ? <p className="muted empty-note">No compliance records yet.</p> : byStage.map((x) => (
+            <div key={x.s.key} className="stage-comp">
+              <div className="small"><b>{x.s.no}. {x.s.label}</b></div>
+              <StackBar parts={[{ label: 'Verified', value: x.verified, color: STATUS.good }, { label: 'Waiting', value: x.waiting, color: '#93c5fd' }, { label: 'Not complied', value: x.not, color: STATUS.bad }]} />
+            </div>
+          ))}
+        </Section>
       </div>
+      <Section title="Work stretches with overdue compliances">
+        <RankBars rows={d.stretches.filter((s) => s.overdue).sort((a, b) => b.overdue - a.overdue).slice(0, 15).map((s) => ({ key: s.code, label: s.code, sub: s.name, value: s.overdue, color: STATUS.bad }))}
+          empty="None. No compliance is overdue." onPick={onOpenStretch} />
+      </Section>
       <Section title="Records by compliance item" action={<button className="btn" onClick={() => download('compliance-items', ['Stage', 'Item', 'Complied', 'Verified', 'Not complied', 'Waiting'],
         d.compliance_items.map((i) => [COMPLIANCE_STAGES.find((s) => s.key === i.stage)?.label ?? i.stage, i.name, i.complied, i.verified, i.not_complied, i.waiting]))}>⬇ Excel (CSV)</button>}>
         <div className="table-wrap">
           <table className="grid">
-            <thead><tr><th>Stage</th><th>Item</th><th>Complied</th><th>Verified</th><th>Not complied</th><th>Waiting</th></tr></thead>
+            <thead><tr><th>Stage</th><th>Item</th><th className="fig">Complied</th><th className="fig">Verified</th><th className="fig">Not complied</th><th className="fig">Waiting</th></tr></thead>
             <tbody>{d.compliance_items.map((i) => (
               <tr key={i.key}><td className="small">{COMPLIANCE_STAGES.find((s) => s.key === i.stage)?.no}. {COMPLIANCE_STAGES.find((s) => s.key === i.stage)?.label}</td><td>{i.name}</td>
-                <td>{i.complied}</td><td>{i.verified}</td><td className={i.not_complied ? 'error' : ''}>{i.not_complied}</td><td>{i.waiting}</td></tr>
+                <td className="fig">{i.complied}</td><td className="fig">{i.verified}</td><td className={`fig ${i.not_complied ? 'error' : ''}`}>{i.not_complied}</td><td className="fig">{i.waiting}</td></tr>
             ))}</tbody>
           </table>
         </div>
-      </Section>
-      <Section title="Work stretches with overdue compliances">
-        <Bars rows={d.stretches.filter((s) => s.overdue).sort((a, b) => b.overdue - a.overdue).slice(0, 15).map((s) => ({ label: `${s.code} ${s.name}`.slice(0, 40), value: s.overdue }))} />
-        <div className="row-btns">{d.stretches.filter((s) => s.overdue).slice(0, 15).map((s) => <button key={s.code} className="btn ghost" onClick={() => onOpenStretch(s.code)}>Open {s.code}</button>)}</div>
       </Section>
     </div>
   );
@@ -321,15 +329,19 @@ function IssuesView({ d }: { d: Dash }) {
   const i = d.overall.issues;
   return (
     <div className="dgrid">
-      <div className="tiles">
-        <Tile label="Open" value={nf(i.open)} /><Tile label="High severity open" value={nf(i.high)} tone={i.high ? 'bad' : undefined} />
-        <Tile label="Overdue" value={nf(i.overdue)} tone={i.overdue ? 'bad' : undefined} /><Tile label="Days to resolve (average)" value={i.avg_days_to_resolve ?? '—'} sub={`${nf(i.resolved)} resolved`} />
+      <div className="kpis">
+        <KpiCard label="Open issues" value={nf(i.open)} status={i.open ? 'watch' : 'good'} statusText={i.open ? 'Being attended' : 'None open'} />
+        <KpiCard label="High severity open" value={nf(i.high)} status={i.high ? 'bad' : 'good'} statusText={i.high ? 'Act first' : 'None'} />
+        <KpiCard label="Overdue" value={nf(i.overdue)} status={i.overdue ? 'bad' : 'good'} statusText={i.overdue ? 'Past the due date' : 'None'} />
+        <KpiCard label="Days to resolve (average)" value={i.avg_days_to_resolve === null ? '—' : String(i.avg_days_to_resolve)} note={`${nf(i.resolved)} resolved`} />
       </div>
-      <Section title="Open issues by kind"><Bars rows={i.by_kind.filter((k) => k.open).map((k) => ({ label: k.label, value: k.open, tip: `${k.label}: ${k.open} open of ${k.total}` }))} /></Section>
+      <div className="dcols">
+        <Section title="Open issues by kind"><RankBars rows={i.by_kind.filter((k) => k.open).sort((a, b) => b.open - a.open).map((k) => ({ label: k.label, value: k.open, tip: `${k.label}: ${k.open} open of ${k.total}` }))} color="#b45309" empty="No open issues." /></Section>
+        <Section title="Open issues by area"><RankBars rows={d.areas.filter((a) => a.issues.open).sort((a, b) => b.issues.open - a.issues.open).map((a) => ({ label: a.key, value: a.issues.open, tip: `${a.key}: ${a.issues.open} open, ${a.issues.overdue} overdue` }))} color="#b45309" empty="No open issues." /></Section>
+      </div>
       <Section title="Last 30 days">
-        <div className="cols-grid"><Columns data={d.trend} field="issues_opened" label="Issues raised" /><Columns data={d.trend} field="issues_resolved" label="Issues resolved" color="#16a34a" /></div>
+        <TrendChart title="Issues" dates={dates(d)} series={[{ label: 'Raised', values: series(d, 'issues_opened'), color: '#b45309' }, { label: 'Resolved', values: series(d, 'issues_resolved'), color: STATUS.good }]} height={170} />
       </Section>
-      <Section title="Open issues by area"><Bars rows={d.areas.filter((a) => a.issues.open).map((a) => ({ label: a.key, value: a.issues.open, tip: `${a.key}: ${a.issues.open} open, ${a.issues.overdue} overdue` }))} /></Section>
     </div>
   );
 }
@@ -338,30 +350,42 @@ function GrievancesView({ d }: { d: Dash }) {
   const g = d.overall.grievances;
   return (
     <div className="dgrid">
-      <div className="tiles">
-        <Tile label="Received" value={nf(g.total)} /><Tile label="Open" value={nf(g.open)} /><Tile label="Overdue" value={nf(g.overdue)} tone={g.overdue ? 'bad' : undefined} />
-        <Tile label="Answered on time" value={g.on_time_pct === null ? '—' : `${g.on_time_pct}%`} sub={`${nf(g.resolved)} resolved`} />
+      <div className="kpis">
+        <KpiCard label="Received" value={nf(g.total)} note={`${nf(g.resolved)} resolved`} />
+        <KpiCard label="Open" value={nf(g.open)} status={g.open ? 'watch' : 'good'} statusText={g.open ? 'Being attended' : 'None open'} />
+        <KpiCard label="Past the 3-day limit" value={nf(g.overdue)} status={g.overdue ? 'bad' : 'good'} statusText={g.overdue ? 'Overdue' : 'None'} />
+        <KpiCard label="Answered on time" value={g.on_time_pct === null ? '—' : String(g.on_time_pct)} unit={g.on_time_pct === null ? '' : '%'} status={pctStatus(g.on_time_pct)} statusText={g.on_time_pct === null ? 'None answered yet' : 'within 3 days'} />
       </div>
-      <Section title="Grievances by problem"><Bars rows={g.by_category.map((c) => ({ label: c.label, value: c.total, tip: `${c.label}: ${c.total} received, ${c.open} open` }))} /></Section>
+      <div className="dcols">
+        <Section title="Grievances by problem"><RankBars rows={g.by_category.filter((c) => c.total).sort((a, b) => b.total - a.total).map((c) => ({ label: c.label, value: c.total, tip: `${c.label}: ${c.total} received, ${c.open} open` }))} color="#7c3aed" empty="No grievances yet." /></Section>
+        <Section title="Open grievances by area"><RankBars rows={d.areas.filter((a) => a.grievances.open).sort((a, b) => b.grievances.open - a.grievances.open).map((a) => ({ label: a.key, value: a.grievances.open }))} color="#7c3aed" empty="No open grievances." /></Section>
+      </div>
       <Section title="Last 30 days">
-        <div className="cols-grid"><Columns data={d.trend} field="grievances" label="Received" /><Columns data={d.trend} field="grievances_resolved" label="Resolved" color="#16a34a" /></div>
+        <TrendChart title="Citizen grievances" dates={dates(d)} series={[{ label: 'Received', values: series(d, 'grievances'), color: '#7c3aed' }, { label: 'Resolved', values: series(d, 'grievances_resolved'), color: STATUS.good }]} height={170} />
       </Section>
-      <Section title="Open grievances by area"><Bars rows={d.areas.filter((a) => a.grievances.open).map((a) => ({ label: a.key, value: a.grievances.open }))} /></Section>
     </div>
   );
 }
 
 function Activity({ d }: { d: Dash }) {
+  const maxU = Math.max(0, ...d.activity.map((a) => a.updates + a.records + a.issues));
   return (
-    <Section title="Field activity · last 7 days" action={<button className="btn" onClick={() => download('field-activity', ['Name', 'Role', 'Status updates', 'Compliance records', 'Issues reported', 'Last update'],
-      d.activity.map((a) => [a.name, a.role, a.updates, a.records, a.issues, a.last_at ? fmtTime(a.last_at) : '']))}>⬇ Excel (CSV)</button>}>
-      <div className="table-wrap">
-        <table className="grid">
-          <thead><tr><th>Name</th><th>Role</th><th>Status updates</th><th>Compliance records</th><th>Issues reported</th><th>Last update</th></tr></thead>
-          <tbody>{d.activity.map((a) => <tr key={a.name}><td><b>{a.name}</b></td><td className="small">{a.role}</td><td>{a.updates}</td><td>{a.records}</td><td>{a.issues}</td><td className="small">{a.last_at ? fmtTime(a.last_at) : <span className="muted">never</span>}</td></tr>)}</tbody>
-        </table>
-      </div>
-      <div className="cols-grid"><Columns data={d.trend} field="updates" label="Status updates per day" /></div>
-    </Section>
+    <div className="dgrid">
+      <Section title="Field activity · last 7 days" action={<button className="btn" onClick={() => download('field-activity', ['Name', 'Role', 'Status updates', 'Compliance records', 'Issues reported', 'Last update'],
+        d.activity.map((a) => [a.name, a.role, a.updates, a.records, a.issues, a.last_at ? fmtTime(a.last_at) : '']))}>⬇ Excel (CSV)</button>}>
+        <div className="table-wrap">
+          <table className="grid">
+            <thead><tr><th>Name</th><th>Role</th><th className="fig">Status updates</th><th className="fig">Compliance records</th><th className="fig">Issues reported</th><th>Total</th><th>Last update</th></tr></thead>
+            <tbody>{d.activity.map((a) => {
+              const t = a.updates + a.records + a.issues;
+              return <tr key={a.name}><td><b>{a.name}</b></td><td className="small">{a.role}</td><td className="fig">{a.updates}</td><td className="fig">{a.records}</td><td className="fig">{a.issues}</td>
+                <td><span className="mini-bar"><span style={{ width: `${maxU ? (t / maxU) * 100 : 0}%` }} /></span> <span className="fig">{t}</span></td>
+                <td className="small">{a.last_at ? fmtTime(a.last_at) : <span className="muted">never</span>}</td></tr>;
+            })}</tbody>
+          </table>
+        </div>
+      </Section>
+      <Section title="Last 30 days"><TrendChart title="Status updates per day" dates={dates(d)} series={[{ label: 'Updates', values: series(d, 'updates'), color: '#0f766e' }]} height={170} /></Section>
+    </div>
   );
 }
