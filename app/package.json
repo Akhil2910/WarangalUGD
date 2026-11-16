@@ -1,0 +1,15 @@
+{
+  "name": "warangal-ugd-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Greater Warangal Municipal Corporation - Underground Drainage tracker",
+  "workspaces": ["shared", "server", "web"],
+  "scripts": {
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w web && npm run typecheck -w server",
+    "start": "npm run start -w server",
+    "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w web"
+  },
+  "engines": { "node": ">=22" }
+}

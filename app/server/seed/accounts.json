@@ -1,0 +1,99 @@
+{
+  "_note": "Starting accounts. Each is created once, by key; a later release may add keys but never re-creates existing ones. One-time passwords are generated at first start and written to app-state/initial-passwords.txt. Trial accounts (key trial-*) are for testing only and cover the whole city (\"areas\": {\"all\": true}); disable them before real use.",
+  "accounts": [
+    {
+      "key": "commissioner-1",
+      "email": "commissioner@gwmc.local",
+      "name": "Commissioner",
+      "designation": "Commissioner",
+      "role": "commissioner"
+    },
+    {
+      "key": "trial-viewer-1",
+      "email": "viewer@gwmc.local",
+      "name": "Trial viewer",
+      "designation": "Viewer (trial)",
+      "role": "viewer"
+    },
+    {
+      "key": "trial-dee-1",
+      "email": "dee@gwmc.local",
+      "name": "Trial DEE",
+      "designation": "DEE (trial)",
+      "role": "dee",
+      "areas": {
+        "all": true
+      }
+    },
+    {
+      "key": "trial-aee-1",
+      "email": "aee@gwmc.local",
+      "name": "Trial AEE",
+      "designation": "AEE (trial)",
+      "role": "aee",
+      "areas": {
+        "all": true
+      }
+    },
+    {
+      "key": "trial-inspector-1",
+      "email": "inspector@gwmc.local",
+      "name": "Trial Field Inspector",
+      "designation": "Field Inspector (trial)",
+      "role": "field_inspector",
+      "areas": {
+        "all": true
+      }
+    },
+    {
+      "key": "trial-contractor-1",
+      "email": "contractor@gwmc.local",
+      "name": "Trial Contractor",
+      "designation": "Contractor (trial)",
+      "role": "contractor",
+      "areas": {
+        "all": true
+      }
+    },
+    {
+      "key": "trial-piu-1",
+      "email": "piu@gwmc.local",
+      "name": "Trial PIU Officer",
+      "designation": "PIU Officer - AEE/DEE (trial)",
+      "role": "piu_officer",
+      "areas": {
+        "all": true
+      }
+    },
+    {
+      "key": "trial-pmu-1",
+      "email": "pmu@gwmc.local",
+      "name": "Trial PMU Officer",
+      "designation": "PMU Officer (trial)",
+      "role": "pmu_officer",
+      "areas": {
+        "all": true
+      }
+    },
+    {
+      "key": "trial-pgdmc-1",
+      "email": "pgdmc@gwmc.local",
+      "name": "Trial PGDMC Officer",
+      "designation": "PGDMC Officer (trial)",
+      "role": "pgdmc_officer",
+      "areas": {
+        "all": true
+      }
+    },
+    {
+      "key": "trial-finance-1",
+      "email": "finance@gwmc.local",
+      "name": "Trial Financial Institution",
+      "designation": "Financial Institution (trial)",
+      "role": "finance",
+      "areas": {
+        "all": true
+      }
+    }
+  ]
+}

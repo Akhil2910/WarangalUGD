@@ -1,0 +1,39 @@
+{
+  "name": "server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "tsx src/test/phase1.test.ts && tsx src/test/phase2.test.ts && tsx src/test/issues.test.ts && tsx src/test/workgroups.test.ts && tsx src/test/site.test.ts && tsx src/test/citizens.test.ts && tsx src/test/roles.test.ts",
+    "test:roles": "tsx src/test/roles.test.ts",
+    "test:issues": "tsx src/test/issues.test.ts",
+    "test:groups": "tsx src/test/workgroups.test.ts",
+    "test:site": "tsx src/test/site.test.ts",
+    "test:citizens": "tsx src/test/citizens.test.ts && tsx src/test/roles.test.ts",
+    "test:roles": "tsx src/test/roles.test.ts",
+    "test:works": "tsx src/test/phase2.test.ts"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.16",
+    "@fastify/cookie": "11.1.5",
+    "@fastify/static": "10.1.11",
+    "bcryptjs": "3.0.3",
+    "fastify": "5.12.8",
+    "jsonwebtoken": "9.0.3",
+    "pg": "8.23.1",
+    "qrcode": "1.5.4",
+    "shared": "0.1.0",
+    "tsx": "4.23.15",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "9.0.10",
+    "@types/node": "24.10.1",
+    "@types/pg": "8.23.1",
+    "@types/qrcode": "1.5.5",
+    "typescript": "5.9.3"
+  }
+}

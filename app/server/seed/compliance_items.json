@@ -1,0 +1,492 @@
+{
+ "source": "UGD_Compliance_Stagewise.xlsx, sheet Stage-wise Checklist",
+ "items": [
+  {
+   "key": "permissions_valid",
+   "sort": 1,
+   "name": "Every required permission valid",
+   "description": "Taken from the permission register. Road cutting is refused until every permission the stretch needs is valid.",
+   "category": "Permits and approvals",
+   "due_at": "before_cutting",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "reference",
+    "document"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "high",
+   "gate": "block",
+   "grace_days": 2
+  },
+  {
+   "key": "utilities_marked",
+   "sort": 2,
+   "name": "Existing utilities located and marked",
+   "description": "Water lines, cables and gas lines along the stretch located and marked on the ground before cutting.",
+   "category": "Utilities coordination",
+   "due_at": "before_cutting",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "photo"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "work_board",
+   "sort": 3,
+   "name": "Work board displayed",
+   "description": "Board with contractor, package, contact number and dates of the work.",
+   "category": "Environment and public",
+   "due_at": "before_cutting",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "photo"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "barricading",
+   "sort": 4,
+   "name": "Barricading, signage and reflective tape",
+   "description": "Confirmed every day the road is cut or the trench is open.",
+   "category": "Safety",
+   "due_at": "trench_open",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "photo"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": 1,
+   "mandatory": true,
+   "severity": "high",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "night_lighting",
+   "sort": 5,
+   "name": "Night lighting / warning lamps",
+   "description": "Confirmed every day the road is cut or the trench is open.",
+   "category": "Safety",
+   "due_at": "trench_open",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "photo"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": 1,
+   "mandatory": true,
+   "severity": "high",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "shoring",
+   "sort": 6,
+   "name": "Shoring for trenches deeper than 1.5 m",
+   "description": "Applies automatically from the design depth. Where levels are not available, state the depth.",
+   "category": "Safety",
+   "due_at": "trench_open",
+   "applies": {
+    "min_depth_m": 1.5
+   },
+   "per": "stretch",
+   "evidence": [
+    "photo"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "high",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "dewatering",
+   "sort": 7,
+   "name": "Dewatering arranged where water is present",
+   "description": "Record where ground water or rain water stands in the trench.",
+   "category": "Safety",
+   "due_at": "trench_open",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "photo"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": false,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "ppe",
+   "sort": 8,
+   "name": "Workers with safety equipment",
+   "description": "Helmets, boots and reflective vests.",
+   "category": "Safety",
+   "due_at": "trench_open",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "photo"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "spoil_stacked",
+   "sort": 9,
+   "name": "Excavated earth stacked away from drains and the carriageway",
+   "description": "Earth must not block drains or the part of the road in use.",
+   "category": "Environment and public",
+   "due_at": "trench_open",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "photo"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "traffic_diversion",
+   "sort": 10,
+   "name": "Traffic diversion in place where needed",
+   "description": "Boards and marshals where the road is closed or narrowed.",
+   "category": "Safety",
+   "due_at": "trench_open",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "photo"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": false,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "pipe_certificate",
+   "sort": 11,
+   "name": "Pipe material test certificate / third-party inspection",
+   "description": "Certificate or inspection report for the pipes used on this stretch.",
+   "category": "Quality and tests",
+   "due_at": "pipe_laying",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "document",
+    "reference"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "bedding",
+   "sort": 12,
+   "name": "Bedding laid as per specification",
+   "description": "Photo of the bedding before the pipe is lowered.",
+   "category": "Quality and tests",
+   "due_at": "pipe_laying",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "photo"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "invert_levels",
+   "sort": 13,
+   "name": "Invert levels checked against the design",
+   "description": "The form shows the design invert level. The measured level must be within 50 mm of it. Where levels are not available the value is recorded without a check.",
+   "category": "Quality and tests",
+   "due_at": "pipe_laying",
+   "applies": {
+    "unit_min_dia_mm": 250
+   },
+   "per": "manhole",
+   "evidence": [
+    "value"
+   ],
+   "value_label": "Invert level measured",
+   "unit": "m",
+   "pass_rule": {
+    "op": "design_within",
+    "value": 0.05
+   },
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "leak_test",
+   "sort": 14,
+   "name": "Leak / hydraulic test",
+   "description": "Date of the test and the test report. Record \"not complied\" for a failed test.",
+   "category": "Quality and tests",
+   "due_at": "after_pipe_laying",
+   "applies": {
+    "unit_min_dia_mm": 250
+   },
+   "per": "reach",
+   "evidence": [
+    "document",
+    "date"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "high",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "manhole_test",
+   "sort": 15,
+   "name": "Manhole water-tightness test",
+   "description": "Date of the test. Record \"not complied\" for a failed test.",
+   "category": "Quality and tests",
+   "due_at": "after_pipe_laying",
+   "applies": {
+    "unit_min_dia_mm": 250
+   },
+   "per": "manhole",
+   "evidence": [
+    "date"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "joints_inspected",
+   "sort": 16,
+   "name": "Joints inspected and approved",
+   "description": "Before any back-filling.",
+   "category": "Quality and tests",
+   "due_at": "before_backfill",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "photo"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "compaction",
+   "sort": 17,
+   "name": "Compaction in layers; field density test",
+   "description": "Field density of the back-fill, at least 95%, with the test report.",
+   "category": "Quality and tests",
+   "due_at": "after_backfill",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "document",
+    "value"
+   ],
+   "value_label": "Field density",
+   "unit": "%",
+   "pass_rule": {
+    "op": ">=",
+    "value": 95.0
+   },
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "surplus_removed",
+   "sort": 18,
+   "name": "Surplus material removed; drains cleared",
+   "description": "No surplus earth or gravel left on the road or in drains.",
+   "category": "Environment and public",
+   "due_at": "before_restoration",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "photo"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "cube_test",
+   "sort": 19,
+   "name": "CC cube test, 7 and 28 days",
+   "description": "CC roads only. The pass strength depends on the grade specified: set the rule in Settings once it is confirmed.",
+   "category": "Quality and tests",
+   "due_at": "after_restoration",
+   "applies": {
+    "road_types": [
+     "cc"
+    ]
+   },
+   "per": "stretch",
+   "evidence": [
+    "document",
+    "value"
+   ],
+   "value_label": "28-day cube strength",
+   "unit": "N/mm²",
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 30
+  },
+  {
+   "key": "restoration_thickness",
+   "sort": 20,
+   "name": "Restoration thickness and level as specified",
+   "description": "Thickness of the restored layer and its level against the old road.",
+   "category": "Quality and tests",
+   "due_at": "after_restoration",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "photo",
+    "value"
+   ],
+   "value_label": "Thickness measured",
+   "unit": "mm",
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 2
+  },
+  {
+   "key": "house_connections",
+   "sort": 21,
+   "name": "House connections given",
+   "description": "Inspection chambers and house connections completed, against the planned number where the estimate gives one.",
+   "category": "Documentation",
+   "due_at": "at_completion",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "photo",
+    "value"
+   ],
+   "value_label": "Connections given",
+   "unit": "nos",
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 15
+  },
+  {
+   "key": "measurement_book",
+   "sort": 22,
+   "name": "Measurement book recorded",
+   "description": "Measurement book number and page.",
+   "category": "Documentation",
+   "due_at": "at_completion",
+   "applies": {},
+   "per": "stretch",
+   "evidence": [
+    "reference"
+   ],
+   "value_label": null,
+   "unit": null,
+   "pass_rule": null,
+   "recurring_days": null,
+   "mandatory": true,
+   "severity": "medium",
+   "gate": "warn",
+   "grace_days": 15
+  }
+ ]
+}

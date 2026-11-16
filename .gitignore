@@ -1,0 +1,18 @@
+# Large or private files: never committed
+inputs/
+work/
+app-data/
+app-state/
+.env
+node_modules/
+app/web/dist/
+*.log
+
+# GWMC / DPR data and extracts: kept off the public repository
+Warangal_KML/
+docs/analysis/
+docs/map-phase/
+# internal working notes and source-specific scripts
+NOTES.md
+pipeline/analysis/
+.claude/
