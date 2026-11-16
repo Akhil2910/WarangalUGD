@@ -3,12 +3,15 @@
  * PMTiles are served with HTTP Range from DATA_DIR.
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
+import { compressBuffer, pickEncoding } from './compress.ts';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { DATA_DIR } from './config.ts';
 import { HttpError } from './auth.ts';
 
 type Entry = [kind: string, label: string, detail: string, lon: number, lat: number];
+
+const packed = new Map<string, { mtime: number; buf: Buffer }>();
 
 export function registerData(app: FastifyInstance) {
   const ALLOWED = /^[a-z0-9_\-]+\.(pmtiles|geojson|json)$/;
@@ -18,6 +21,21 @@ export function registerData(app: FastifyInstance) {
     const full = path.join(DATA_DIR, file);
     if (!existsSync(full) || !statSync(full).isFile()) throw new HttpError(404, 'This map layer is not available yet.');
     reply.header('Cache-Control', 'private, max-age=3600');
+    // GeoJSON / JSON: sent compressed (kept in memory once made); map tiles go as they are, by byte range
+    const enc = file.endsWith('.pmtiles') ? null : pickEncoding(req);
+    if (enc) {
+      const mtime = statSync(full).mtimeMs;
+      const key = `${file}|${enc}`;
+      let hit = packed.get(key);
+      if (!hit || hit.mtime !== mtime) {
+        hit = { mtime, buf: await compressBuffer(readFileSync(full), enc, 9) };
+        packed.set(key, hit);
+      }
+      const etag = `"${Math.round(mtime).toString(36)}-${enc}"`;
+      reply.header('etag', etag).header('vary', 'Accept-Encoding');
+      if (req.headers['if-none-match'] === etag) return reply.status(304).send();
+      return reply.header('content-type', file.endsWith('.geojson') ? 'application/geo+json' : 'application/json').header('content-encoding', enc).send(hit.buf);
+    }
     return reply.sendFile(file, DATA_DIR);
   });
 

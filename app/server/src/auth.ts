@@ -69,14 +69,16 @@ export async function seedAccounts(db: Db, log: (m: string) => void) {
     if (existing.length) {
       userId = existing[0].id; // never re-create; just register the key
     } else {
-      const pw = oneTimePassword();
+      // DEFAULT_PASSWORD (set on the server, never in the code): new accounts get it and are not asked to change it
+      const common = process.env.DEFAULT_PASSWORD;
+      const pw = common || oneTimePassword();
       const rows = await db.query<{ id: string }>(
         `INSERT INTO users (email, name, designation, role, areas, password_hash, must_change_password)
-         VALUES ($1, $2, $3, $4, $5, $6, true) RETURNING id`,
-        [a.email, a.name, a.designation ?? '', a.role, JSON.stringify(a.areas ?? {}), await bcrypt.hash(pw, 10)],
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        [a.email, a.name, a.designation ?? '', a.role, JSON.stringify(a.areas ?? {}), await bcrypt.hash(pw, 10), !common],
       );
       userId = rows[0].id;
-      appendFileSync(
+      if (!common) appendFileSync(
         path.join(STATE_DIR, 'initial-passwords.txt'),
         `${new Date().toISOString()}  ${a.email}  one-time password: ${pw}\n`,
         { mode: 0o600 },

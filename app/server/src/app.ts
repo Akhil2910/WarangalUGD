@@ -15,6 +15,7 @@ import { registerGrievances } from './grievances.ts';
 import { registerUtilities } from './utilities.ts';
 import { registerDashboard } from './dashboard.ts';
 import type { Db } from './db.ts';
+import { registerCompression } from './compress.ts';
 
 export async function buildApp(db: Db, opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({
@@ -28,7 +29,16 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}): Promise
   if (existsSync(WEB_DIST)) {
     // wildcard: serve whatever the current build contains (new hashed files after a rebuild);
     // missing files fall through to the not-found handler below.
-    await app.register(fastifyStatic, { root: WEB_DIST, prefix: '/', decorateReply: false, wildcard: true, index: 'index.html' });
+    // preCompressed: sends the .br / .gz copies made at build time. Hashed files under /assets never change: cache them for a year.
+    await app.register(fastifyStatic, {
+      root: WEB_DIST, prefix: '/', decorateReply: false, wildcard: true, index: 'index.html', preCompressed: true,
+      setHeaders: (res, file) => {
+        const f = file.replace(/\\/g, '/');
+        if (f.includes('/assets/')) res.header('Cache-Control', 'public, max-age=31536000, immutable');
+        else if (f.includes('/fonts/') || f.endsWith('.svg')) res.header('Cache-Control', 'public, max-age=604800');
+        else res.header('Cache-Control', 'no-cache');
+      },
+    });
   }
 
   // Bad input gives a clear 4xx, never a 500.
@@ -50,6 +60,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}): Promise
     return reply.sendFile('index.html', WEB_DIST); // single-page app routes
   });
 
+  registerCompression(app);
   registerAuth(app, db);
   registerData(app);
   registerFiles(app, db);

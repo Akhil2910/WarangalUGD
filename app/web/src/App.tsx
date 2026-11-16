@@ -46,40 +46,92 @@ function StaffApp() {
 function SignIn({ onDone }: { onDone: () => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [show, setShow] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const FACTS: [string, string][] = [['66', 'wards'], ['2,739 km', 'sewer network planned'], ['1,14,345', 'manholes planned'], ['8', 'GWMC zones']];
+  const FEATURES: [string, string, string][] = [
+    ['map', 'Work on the satellite map', 'Draw work stretches on DPR pipes and manholes; update status from the field.'],
+    ['check', 'Compliance at every stage', 'Permissions, safety, testing and road restoration — recorded with photos and GPS, then verified.'],
+    ['alert', 'Issues and citizen grievances', 'Problems reported anywhere on the map; citizens complain by scanning the QR board at the site.'],
+    ['chart', 'Dashboards for every level', 'Progress, compliance, issues and grievances — city-wide, by zone, ward and sewerage zone.'],
+  ];
   return (
-    <div className="center">
-      <form
-        className="card"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          setError('');
-          try {
-            await api('/api/auth/login', { email, password });
-            onDone();
-          } catch (err) {
-            setError((err as Error).message);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <img src="/icon.svg" alt="" width={48} height={48} />
-        <h1>Warangal UGD Tracker</h1>
-        <p className="muted">Greater Warangal Municipal Corporation</p>
-        <label>
-          Email
-          <input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </label>
-        <label>
-          Password
-          <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        </label>
-        {error && <p className="error">{error}</p>}
-        <button disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
-      </form>
+    <div className="login">
+      <section className="login-hero">
+        <svg className="login-net" viewBox="0 0 600 600" preserveAspectRatio="xMidYMid slice" aria-hidden>
+          <g fill="none" stroke="currentColor" strokeLinecap="round">
+            <path d="M-20 120 C120 140 180 60 300 90 S480 200 640 160" strokeWidth="3" />
+            <path d="M-20 300 C100 260 220 330 320 300 S520 240 640 290" strokeWidth="4" />
+            <path d="M80 -20 C110 120 60 240 140 360 S180 560 120 640" strokeWidth="2" />
+            <path d="M420 -20 C400 120 470 220 430 340 S380 520 460 640" strokeWidth="2.5" />
+            <path d="M-20 480 C160 450 260 520 380 470 S560 430 640 470" strokeWidth="2" />
+            <path d="M300 90 L320 300 L380 470" strokeWidth="1.5" strokeDasharray="4 6" />
+          </g>
+          <g fill="currentColor">
+            {[[300, 90], [320, 300], [380, 470], [140, 360], [430, 340], [60, 128], [520, 255], [210, 505]].map(([x, y]) => <circle key={`${x}-${y}`} cx={x} cy={y} r="5" />)}
+          </g>
+        </svg>
+        <div className="login-hero-in">
+          <div className="login-brand"><img src="/icon.svg" alt="" width={44} height={44} /><span>Warangal UGD Tracker</span></div>
+          <h1>Underground Drainage Project,<br />Greater Warangal</h1>
+          <p className="login-te" lang="te">గ్రేటర్ వరంగల్ మునిసిపల్ కార్పొరేషన్</p>
+          <p className="login-lead">One place to plan, build, check and monitor the city's sewer network — from the DPR to every road restored.</p>
+          <div className="login-facts">{FACTS.map(([n, l]) => <div key={l}><b>{n}</b><span>{l}</span></div>)}</div>
+          <ul className="login-feat">
+            {FEATURES.map(([icon, t, d]) => (
+              <li key={t}><span className={`lf-icon lf-${icon}`} aria-hidden /><div><b>{t}</b><span>{d}</span></div></li>
+            ))}
+          </ul>
+        </div>
+      </section>
+      <section className="login-side">
+        <form
+          className="login-card"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            setError('');
+            try {
+              await api('/api/auth/login', { email: email.trim(), password });
+              onDone();
+            } catch (err) {
+              setError((err as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <h2>Sign in</h2>
+          <p className="muted">Use the GWMC account given to you.</p>
+          <label>
+            User ID (email)
+            <input type="email" autoComplete="username" placeholder="name@gwmc.local" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+          </label>
+          <label>
+            Password
+            <span className="pw-wrap">
+              <input type={show ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+              <button type="button" className="pw-eye" onClick={() => setShow(!show)} aria-label={show ? 'Hide password' : 'Show password'} title={show ? 'Hide password' : 'Show password'}>
+                {show ? (
+                  <svg viewBox="0 0 24 24" aria-hidden><path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A10.4 10.4 0 0 1 12 5c6 0 9.5 7 9.5 7a17 17 0 0 1-3.2 4.1M6.6 6.6C3.9 8.4 2.5 12 2.5 12S6 19 12 19a9.6 9.6 0 0 0 5.4-1.6" /></svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" aria-hidden><path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z" /><circle cx="12" cy="12" r="3" /></svg>
+                )}
+              </button>
+            </span>
+          </label>
+          {error && <p className="error">{error}</p>}
+          <button className="primary big" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+          <div className="login-roles">
+            For the Contractor, PIU, PMU, PGDMC, Commissioner and Financial Institution — each sees what their role needs.
+          </div>
+        </form>
+        <div className="login-citizen">
+          <b>Citizen?</b> Scan the QR board at the work site to report a problem, or <a href="/g/status">check the status of your complaint</a>.
+        </div>
+        <footer className="login-foot">Greater Warangal Municipal Corporation · For official use</footer>
+      </section>
     </div>
   );
 }

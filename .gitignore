@@ -16,3 +16,7 @@ docs/map-phase/
 NOTES.md
 pipeline/analysis/
 .claude/
+
+# copies made by a mistyped scp, and map data anywhere
+ubuntu@*/
+*.pmtiles
