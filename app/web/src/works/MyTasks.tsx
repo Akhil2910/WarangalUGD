@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.ts';
 import { Modal } from './Modal.tsx';
 import { fmtDate } from './util.tsx';
+import { Icon } from '../ui.tsx';
 
 export interface Task { kind: string; tone: 'bad' | 'due' | 'wait'; title: string; detail: string; due: string | null; link: Record<string, string> }
 
@@ -21,7 +22,7 @@ export function MyTasksButton({ tasks, onOpen }: { tasks: Task[]; onOpen: () => 
   const urgent = tasks.filter((t) => t.tone === 'bad').length;
   return (
     <button className={`btn tasks-btn ${urgent ? 'urgent' : ''}`} onClick={onOpen} title="What you need to do">
-      My tasks {tasks.length > 0 && <span className="tasks-count">{tasks.length}</span>}
+      <Icon name="bell" /><span className="tasks-label">My tasks</span>{tasks.length > 0 && <span className="tasks-count">{tasks.length}</span>}
     </button>
   );
 }

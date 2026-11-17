@@ -15,7 +15,7 @@ import { WorksPage, EMPTY_FILTERS, type Filters } from './works/WorksPage.tsx';
 import { CompliancePage } from './works/CompliancePage.tsx';
 import { IssuesPage, type IssueRow } from './works/IssuesPage.tsx';
 import { WorkPanel, newWork, type Preview, type WorkState } from './works/WorkPanel.tsx';
-import { FontButtons } from './ui.tsx';
+import { FontButtons, Icon } from './ui.tsx';
 import { MapNav, type AreaType } from './MapNav.tsx';
 import { MyTasksButton, MyTasksModal, useMyTasks, type Task } from './works/MyTasks.tsx';
 import { AreaSummary } from './works/AreaSummary.tsx';
@@ -543,13 +543,17 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
   return (
     <div className="app">
       <header className="bar">
-        <div className="brand"><span className="logo">UGD</span><span className="brand-name">Warangal UGD Tracker</span></div>
+        <div className="brand">
+          <img src="/icon.svg" alt="" width={34} height={34} className="brand-logo" />
+          <span className="brand-text"><b>Warangal UGD Tracker</b><small>GWMC · Underground Drainage</small></span>
+        </div>
         <nav className="main-tabs">
           {tabs.map(([t, label]) => (
-            <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{label}</button>
+            <button key={t} title={label} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}><Icon name={t} /><span>{label}</span></button>
           ))}
         </nav>
         <div className="search">
+          <Icon name="search" />
           <input placeholder="Search work, manhole, ward, road…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" />
           {results.length > 0 && (
             <ul className="results">
@@ -559,11 +563,14 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
             </ul>
           )}
         </div>
-        <MyTasksButton tasks={tasks} onOpen={() => setTasksOpen(true)} />
-        <FontButtons />
-        <div className="user">
-          <span className="who">{user.name}<small>{ROLE_LABEL[user.role as Role] ?? user.role}</small></span>
-          <button className="btn ghost" onClick={onSignOut}>Sign out</button>
+        <div className="bar-right">
+          <MyTasksButton tasks={tasks} onOpen={() => setTasksOpen(true)} />
+          <FontButtons />
+          <div className="user">
+            <span className="avatar" aria-hidden>{user.name.split(/\s+/).filter((w) => !/^trial$/i.test(w)).map((w) => w[0]).join('').slice(0, 2).toUpperCase()}</span>
+            <span className="who">{user.name}<small>{ROLE_LABEL[user.role as Role] ?? user.role}</small></span>
+            <button className="icon-btn" onClick={onSignOut} title="Sign out" aria-label="Sign out"><Icon name="logout" /></button>
+          </div>
         </div>
       </header>
       {error && <div className="banner" onClick={() => setError('')}>{error} <u>close</u></div>}
@@ -581,63 +588,83 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
           onReportAt={(lon, lat) => { setBoundary(null); setReporting({ at: { lon, lat } }); }} />}
         {tab === 'map' && !work && !marking && (
           <>
-            <button className="btn layers-btn" onClick={() => setLayersOpen((o) => !o)}>☰ Layers</button>
+            <button className="layers-btn" onClick={() => setLayersOpen((o) => !o)}><Icon name="layers" /> Layers</button>
             {layersOpen && meta && (
               <div className="layers">
-                <div className="layers-head"><strong>Layers</strong><button className="btn ghost" onClick={() => setLayersOpen(false)}>Close</button></div>
-                {LAYER_GROUPS.map((g) => {
-                  const keys = STYLE_OF[g.key] ?? [];
+                <div className="layers-head">
+                  <span className="lh-title"><Icon name="layers" /> Map layers</span>
+                  <button className="icon-btn" onClick={() => setLayersOpen(false)} aria-label="Close"><Icon name="close" /></button>
+                </div>
+                {([
+                  ['Base map', 'satellite', ['imagery']],
+                  ['Sewer network and works', 'network', ['work', 'dpr', 'drawn', 'issues']],
+                  ['Boundaries', 'boundary', ['wards', 'admin', 'sewerzones']],
+                ] as [string, string, string[]][]).map(([title, icon, keys]) => (
+                  <section key={title} className="lg">
+                    <div className="lg-title"><Icon name={icon} /> {title}</div>
+                    {keys.map((k) => {
+                      const g = LAYER_GROUPS.find((x) => x.key === k)!;
+                      const sk = STYLE_OF[k] ?? [];
+                      const def = STYLE_DEFS.find((d) => d.key === sk[0]);
+                      const col = (sk[0] && styles[sk[0]]?.color) || def?.color || '';
+                      const dash = (sk[0] && styles[sk[0]]?.dash) || def?.dash || 'solid';
+                      return (
+                        <div key={k} className={`lrow ${visible[k] ? '' : 'off'}`}>
+                          <span className="lswatch">
+                            {k === 'imagery' ? <span className="sw-img" /> : k === 'work' ? <span className="sw-band" /> : k === 'issues' ? <span className="sw-pin" />
+                              : def?.kind === 'boundary' ? <span className="sw-bound" style={{ borderColor: col, borderStyle: dash === 'solid' ? 'solid' : dash === 'dashed' ? 'dashed' : 'dotted' }} />
+                              : <span className="sw-pipe" style={{ background: col || '#a855f7', outline: col === '#ffffff' ? '1px solid #94a3b8' : undefined }} />}
+                          </span>
+                          <span className="lname">{g.label}</span>
+                          {sk.length > 0 && <button className="icon-btn sm" title="Colour, width and line type" aria-label={`Style of ${g.label}`} onClick={() => setStyleKeys(sk)}><Icon name="palette" /></button>}
+                          <label className="toggle" title={visible[k] ? 'Hide' : 'Show'}>
+                            <input type="checkbox" checked={!!visible[k]} onChange={(e) => toggle(k, e.target.checked)} aria-label={g.label} />
+                            <span />
+                          </label>
+                        </div>
+                      );
+                    })}
+                  </section>
+                ))}
+                {([['above', 'Utilities · above ground'], ['under', 'Utilities · underground']] as const).map(([grp, title]) => {
+                  const list = UTILITY_LAYERS.filter((u) => u.group === grp);
+                  const total = list.reduce((a, u) => a + (utilCounts[u.key] ?? 0), 0);
+                  const allOn = list.every((u) => utilOn.has(u.key));
                   return (
-                    <div key={g.key} className="layer-row">
-                      <label className="switch-row">
-                        <input type="checkbox" checked={!!visible[g.key]} onChange={(e) => toggle(g.key, e.target.checked)} />
-                        <span>{g.label}</span>
-                      </label>
-                      {keys.length > 0 && (
-                        <button className="btn ghost style-btn" title="Colour, width, line type" onClick={() => setStyleKeys(keys)}>
-                          {keys[0] !== 'work_band' && <span className="sw-mini" style={{ background: styles[keys[0]]?.color ?? STYLE_DEFS.find((d) => d.key === keys[0])!.color }} />}
-                          Style
-                        </button>
-                      )}
-                    </div>
+                    <section key={grp} className="lg">
+                      <div className="lg-title"><Icon name="utilities" /> {title} <span className="lg-count">{total.toLocaleString('en-IN')}</span>
+                        <button className="link lg-all" onClick={() => setUtilOn((s0) => { const n = new Set(s0); for (const u of list) { if (allOn) n.delete(u.key); else n.add(u.key); } return n; })}>{allOn ? 'Hide all' : 'Show all'}</button>
+                      </div>
+                      <div className="util-grid">
+                        {list.map((u) => (
+                          <button key={u.key} className={`ug ${utilOn.has(u.key) ? 'on' : ''}`} onClick={() => setUtilOn((s0) => { const n = new Set(s0); if (n.has(u.key)) n.delete(u.key); else n.add(u.key); return n; })} title={u.label}>
+                            <img src={utilIconUrl(u.key, u.color, 40)} alt="" /><span className="ug-name">{u.label}</span><span className="ug-count">{(utilCounts[u.key] ?? 0).toLocaleString('en-IN')}</span>
+                          </button>
+                        ))}
+                        {grp === 'under' && (
+                          <button className={`ug ${drainsOn ? 'on' : ''}`} onClick={() => setDrainsOn((x) => !x)} title={EXISTING_DRAINS.label}>
+                            <img src={utilIconUrl(EXISTING_DRAINS.key, EXISTING_DRAINS.color, 40)} alt="" /><span className="ug-name">{EXISTING_DRAINS.label}</span><span className="ug-count">34,175</span>
+                          </button>
+                        )}
+                      </div>
+                    </section>
                   );
                 })}
-                <div className="layers-sec">Utilities · above ground <span className="sec-count">{UTILITY_LAYERS.filter((u) => u.group === 'above').reduce((a, u) => a + (utilCounts[u.key] ?? 0), 0).toLocaleString('en-IN')}</span></div>
-                <div className="util-chips">
-                  {UTILITY_LAYERS.filter((u) => u.group === 'above').map((u) => (
-                    <button key={u.key} className={`util-chip ${utilOn.has(u.key) ? 'on' : ''}`} style={{ borderColor: u.color }} onClick={() => setUtilOn((s) => { const n = new Set(s); if (n.has(u.key)) n.delete(u.key); else n.add(u.key); return n; })}>
-                      <img className="chip-icon" src={utilIconUrl(u.key, u.color, 40)} alt="" />{u.label}<span className="chip-count">{(utilCounts[u.key] ?? 0).toLocaleString('en-IN')}</span>
-                    </button>
-                  ))}
-                </div>
-                <div className="layers-sec">Utilities · underground <span className="sec-count">{UTILITY_LAYERS.filter((u) => u.group === 'under').reduce((a, u) => a + (utilCounts[u.key] ?? 0), 0).toLocaleString('en-IN')}</span></div>
-                <div className="util-chips">
-                  {UTILITY_LAYERS.filter((u) => u.group === 'under').map((u) => (
-                    <button key={u.key} className={`util-chip ${utilOn.has(u.key) ? 'on' : ''}`} style={{ borderColor: u.color }} onClick={() => setUtilOn((s) => { const n = new Set(s); if (n.has(u.key)) n.delete(u.key); else n.add(u.key); return n; })}>
-                      <img className="chip-icon" src={utilIconUrl(u.key, u.color, 40)} alt="" />{u.label}<span className="chip-count">{(utilCounts[u.key] ?? 0).toLocaleString('en-IN')}</span>
-                    </button>
-                  ))}
-                  <button className={`util-chip ${drainsOn ? 'on' : ''}`} style={{ borderColor: EXISTING_DRAINS.color }} onClick={() => setDrainsOn((x) => !x)}>
-                    <img className="chip-icon" src={utilIconUrl(EXISTING_DRAINS.key, EXISTING_DRAINS.color, 40)} alt="" />{EXISTING_DRAINS.label}<span className="chip-count">34,175</span>
-                  </button>
-                </div>
-                <div className="layers-sec">Colour work stretches by</div>
-                <div className="seg">
-                  <button className={theme === 'stage' ? 'on' : ''} onClick={() => setTheme('stage')}>Work stage</button>
-                  <button className={theme === 'compliance' ? 'on' : ''} onClick={() => setTheme('compliance')}>Compliance</button>
-                </div>
-                <div className="legend-list">
-                  {(theme === 'stage' ? STAGES : COMPLIANCE_THEME).map((s) => <div key={s.key}><span className="sw" style={{ background: s.color }} />{s.label}</div>)}
-                </div>
-                <div className="layers-sec">Pipes: thicker line = bigger diameter</div>
-                <div className="legend-list">
-                  {PIPE_WIDTHS.map(([d, w]) => <div key={d}><span className="sw line" style={{ background: styles.dpr_pipes?.color ?? STYLE_DEFS[0].color, height: Math.max(2, w * 1.4 * (styles.dpr_pipes?.width ?? 1)) }} />{d} mm{d === 1400 ? '+' : ''}</div>)}
-                  <div><span className="sw line" style={{ background: '#fff', height: 3, outline: '1px solid #64748b' }} />Drawn pipe (white)</div>
-                </div>
-                <div className="layers-sec">Go to a zone</div>
-                <div className="chips">
-                  {meta.admin_zones.map((z) => <button key={z.id} className="chip" onClick={() => { fit(z.bbox as BBox, 16); setLayersOpen(false); }}>{z.id}</button>)}
-                </div>
+                <section className="lg">
+                  <div className="lg-title"><Icon name="legend" /> Legend</div>
+                  <div className="seg">
+                    <button className={theme === 'stage' ? 'on' : ''} onClick={() => setTheme('stage')}>By work stage</button>
+                    <button className={theme === 'compliance' ? 'on' : ''} onClick={() => setTheme('compliance')}>By compliance</button>
+                  </div>
+                  <div className="legend-grid">
+                    {(theme === 'stage' ? STAGES : COMPLIANCE_THEME).map((x) => <div key={x.key}><span className="sw" style={{ background: x.color }} />{x.label}</div>)}
+                  </div>
+                  <div className="lg-sub">Pipes — a thicker line means a bigger diameter</div>
+                  <div className="pipe-legend">
+                    {PIPE_WIDTHS.map(([d, w]) => <div key={d}><span style={{ background: styles.dpr_pipes?.color ?? STYLE_DEFS[0].color, height: Math.max(2, w * 1.4 * (styles.dpr_pipes?.width ?? 1)) }} /><small>{d}{d === 1400 ? '+' : ''}</small></div>)}
+                    <div><span style={{ background: '#fff', height: 3, outline: '1px solid #64748b' }} /><small>drawn</small></div>
+                  </div>
+                </section>
               </div>
             )}
             <div className="fab-row">
