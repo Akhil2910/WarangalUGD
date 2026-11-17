@@ -12,6 +12,9 @@ import type { Db } from './db.ts';
 import { nearCity, wardAt } from './geo.ts';
 import { can, inArea, iso, parse, type Q } from './works.ts';
 import { has } from './perms.ts';
+import { cur, curPrefix } from './ulbctx.ts';
+/** The current ULB as a plain number (safe to put straight into SQL). */
+const U = () => Number(cur());
 
 const layerKeys = UTILITY_LAYERS.map((l) => l.key) as [string, ...string[]];
 const pos = z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)]);
@@ -42,7 +45,7 @@ export function registerUtilities(app: FastifyInstance, db: Db) {
 
   app.get('/api/utilities/map', async () => {
     const rows = await q<{ id: string; layer: string; geom: unknown; props: Record<string, unknown>; ward: number; source: string; created_at: unknown }>(
-      'SELECT id, layer, geom, props, ward, source, created_at FROM utility_features WHERE deleted_at IS NULL');
+      `SELECT id, layer, geom, props, ward, source, created_at FROM utility_features WHERE deleted_at IS NULL AND ulb_id = ${U()}`);
     return {
       type: 'FeatureCollection',
       features: rows.map((r) => ({ type: 'Feature', id: Number(r.id), geometry: r.geom,
@@ -52,7 +55,7 @@ export function registerUtilities(app: FastifyInstance, db: Db) {
 
   app.get('/api/utilities/summary', async () => {
     const rows = await q<{ layer: string; n: string; imported: string }>(
-      `SELECT layer, count(*) AS n, count(*) FILTER (WHERE source = 'imported') AS imported FROM utility_features WHERE deleted_at IS NULL GROUP BY layer`);
+      `SELECT layer, count(*) AS n, count(*) FILTER (WHERE source = 'imported') AS imported FROM utility_features WHERE deleted_at IS NULL AND ulb_id = ${U()} GROUP BY layer`);
     return { layers: UTILITY_LAYERS.map((l) => ({ ...l, count: Number(rows.find((r) => r.layer === l.key)?.n ?? 0), imported: Number(rows.find((r) => r.layer === l.key)?.imported ?? 0) })) };
   });
 
@@ -65,7 +68,7 @@ export function registerUtilities(app: FastifyInstance, db: Db) {
     if (!nearCity(lon, lat)) throw new HttpError(400, 'That place is outside the city area.');
     const w = wardAt(lon, lat);
     if (!canMark(u, w)) throw new HttpError(403, 'Only field inspectors and officers of the area can mark utilities.');
-    const r = await q<{ id: string }>(`INSERT INTO utility_features (layer, geom, props, ward, admin_zone, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+    const r = await q<{ id: string }>(`INSERT INTO utility_features (layer, geom, props, ward, admin_zone, created_by, ulb_id) VALUES ($1,$2,$3,$4,$5,$6,${U()}) RETURNING id`,
       [b.layer, JSON.stringify(b.geom), JSON.stringify(b.props), w.ward, w.admin_zone, u.id]);
     return { ok: true, id: Number(r[0].id) };
   });
@@ -73,7 +76,7 @@ export function registerUtilities(app: FastifyInstance, db: Db) {
   app.post<{ Params: { id: string } }>('/api/utilities/:id/edit', async (req) => {
     const u = req.user!;
     const b = parse(z.object({ props: propsSchema }), req.body);
-    const r = await q<{ ward: number; admin_zone: string }>('SELECT ward, admin_zone FROM utility_features WHERE id = $1 AND deleted_at IS NULL', [Number(req.params.id)]);
+    const r = await q<{ ward: number; admin_zone: string }>(`SELECT ward, admin_zone FROM utility_features WHERE id = $1 AND deleted_at IS NULL AND ulb_id = ${U()}`, [Number(req.params.id)]);
     if (!r.length) throw new HttpError(404, 'Not found.');
     if (!canMark(u, r[0])) throw new HttpError(403, 'Only field inspectors and officers of the area can change utilities.');
     await q('UPDATE utility_features SET props = $2 WHERE id = $1', [Number(req.params.id), JSON.stringify(b.props)]);
@@ -82,7 +85,7 @@ export function registerUtilities(app: FastifyInstance, db: Db) {
 
   app.post<{ Params: { id: string } }>('/api/utilities/:id/delete', async (req) => {
     const u = req.user!;
-    const r = await q<{ ward: number; admin_zone: string }>('SELECT ward, admin_zone FROM utility_features WHERE id = $1 AND deleted_at IS NULL', [Number(req.params.id)]);
+    const r = await q<{ ward: number; admin_zone: string }>(`SELECT ward, admin_zone FROM utility_features WHERE id = $1 AND deleted_at IS NULL AND ulb_id = ${U()}`, [Number(req.params.id)]);
     if (!r.length) throw new HttpError(404, 'Not found.');
     if (!canMark(u, r[0])) throw new HttpError(403, 'Only field inspectors and officers of the area can remove utilities.');
     await q('UPDATE utility_features SET deleted_at = now() WHERE id = $1', [Number(req.params.id)]);
@@ -110,12 +113,12 @@ export function registerUtilities(app: FastifyInstance, db: Db) {
           const p = Object.fromEntries(Object.entries(f.properties ?? {}).filter(([, v]) => ['string', 'number', 'boolean'].includes(typeof v)).slice(0, 30)
             .map(([k, v]) => [k.slice(0, 40), typeof v === 'string' ? v.slice(0, 200) : v]));
           const { keep, origin } = split(p as Record<string, unknown>);
-          await t(`INSERT INTO utility_features (layer, geom, props, origin, ward, admin_zone, source, import_id, created_by) VALUES ($1,$2,$3,$4,$5,$6,'imported',$7,$8)`,
+          await t(`INSERT INTO utility_features (layer, geom, props, origin, ward, admin_zone, source, import_id, created_by, ulb_id) VALUES ($1,$2,$3,$4,$5,$6,'imported',$7,$8,${U()})`,
             [b.layer, JSON.stringify(ok.data), JSON.stringify(keep), JSON.stringify({ ...origin, file: b.source_name || undefined }), w.ward, w.admin_zone, importId, u.id]);
           added++;
         }
       }
-      await t('INSERT INTO audit_log (actor, action, detail) VALUES ($1, $2, $3)', [u.id, 'utilities_imported', JSON.stringify({ layer: b.layer, added, skipped, importId, source: b.source_name })]);
+      await t(`INSERT INTO audit_log (actor, action, detail, ulb_id) VALUES ($1, $2, $3, ${U()})`, [u.id, 'utilities_imported', JSON.stringify({ layer: b.layer, added, skipped, importId, source: b.source_name })]);
     });
     return { ok: true, added, skipped, import_id: importId };
   });

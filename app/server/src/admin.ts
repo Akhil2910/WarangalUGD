@@ -1,6 +1,6 @@
 /**
  * Administration for one ULB: users, roles and the permission grid, organisation settings and deadlines, audit log.
- * Each admin works only inside their own ULB (the State Admin manages ULBs — next step).
+ * Each admin works only inside their own ULB. The State Admin also lists, adds and switches between ULBs.
  * Every change is written to the audit log.
  */
 import bcrypt from 'bcryptjs';
@@ -10,6 +10,8 @@ import { ACTION_KEYS, ACTIONS, defaultGrants, PASSWORD_MIN_LENGTH, ROLE_DUTY, RO
 import { audit, HttpError, type SessionUser } from './auth.ts';
 import type { Db } from './db.ts';
 import { has, invalidatePerms, invalidateSettings, roleEntry, ulbOf } from './perms.ts';
+import { loadDefaultProjectItems } from './project.ts';
+import { loadComplianceItems } from './seed.ts';
 import { iso, parse, type Q } from './works.ts';
 
 const ADMIN_ACTIONS: Action[] = ['admin.users', 'admin.roles', 'admin.settings', 'admin.audit'];
@@ -238,7 +240,7 @@ export function registerAdmin(app: FastifyInstance, db: Db) {
   app.get<{ Querystring: { before?: string; who?: string; what?: string } }>('/api/admin/audit', async (req) => {
     const u = req.user!;
     need(u, 'admin.audit');
-    const where = ['(a.actor IS NULL OR au.ulb_id = $1)'];
+    const where = ['a.ulb_id = $1'];
     const vals: unknown[] = [u.ulb_id];
     if (req.query.before && /^\d+$/.test(req.query.before)) { vals.push(Number(req.query.before)); where.push(`a.id < $${vals.length}`); }
     if (req.query.what) { vals.push(`%${req.query.what.slice(0, 40)}%`); where.push(`a.action ILIKE $${vals.length}`); }
@@ -248,4 +250,71 @@ export function registerAdmin(app: FastifyInstance, db: Db) {
        WHERE ${where.join(' AND ')} ORDER BY a.id DESC LIMIT 100`, vals);
     return { rows: rows.map((r) => ({ ...r, id: Number(r.id), at: iso(r.at) })) };
   });
+
+  // ---------------- ULBs (State Admin only) ----------------
+  const stateOnly = (u: SessionUser) => { if (u.role !== 'super_admin') throw new HttpError(403, 'Only the State Admin manages ULBs.'); return u; };
+
+  app.get('/api/admin/ulbs', async (req) => {
+    const u = stateOnly(req.user!);
+    const rows = await q<{ id: number; code: string; name: string; name_local: string; state: string; active: boolean; created_at: unknown; users: string; works: string; open_issues: string; open_grievances: string }>(
+      `SELECT b.id, b.code, b.name, b.name_local, b.state, b.active, b.created_at,
+              (SELECT count(*) FROM users x WHERE x.ulb_id = b.id AND x.active) AS users,
+              (SELECT count(*) FROM stretches x WHERE x.ulb_id = b.id AND x.source = 'site' AND x.deleted_at IS NULL AND NOT x.hidden) AS works,
+              (SELECT count(*) FROM issues x WHERE x.ulb_id = b.id AND x.status <> 'resolved') AS open_issues,
+              (SELECT count(*) FROM grievances x WHERE x.ulb_id = b.id AND x.status IN ('new','assigned')) AS open_grievances
+       FROM ulbs b ORDER BY b.id`);
+    return {
+      current: u.ulb_id, home: u.home_ulb_id,
+      ulbs: rows.map((r) => ({ ...r, id: Number(r.id), created_at: iso(r.created_at), users: Number(r.users), works: Number(r.works), open_issues: Number(r.open_issues), open_grievances: Number(r.open_grievances) })),
+    };
+  });
+
+  const ulbBody = z.object({
+    code: z.string().trim().toUpperCase().regex(/^[A-Z][A-Z0-9]{1,9}$/, 'Short code: 2 to 10 capital letters or digits, starting with a letter (for example KMC).'),
+    name: z.string().trim().min(3).max(160),
+    name_local: z.string().trim().max(160).default(''),
+    state: z.string().trim().max(60).default('Telangana'),
+    project_name: z.string().trim().min(3).max(120).optional(),
+    admin: z.object({
+      name: z.string().trim().min(2).max(120),
+      email: z.string().trim().toLowerCase().email().max(160),
+      password: z.string().min(PASSWORD_MIN_LENGTH, `The password needs at least ${PASSWORD_MIN_LENGTH} characters.`).max(200),
+    }),
+  });
+  app.post('/api/admin/ulbs', async (req) => {
+    const u = stateOnly(req.user!);
+    const b = parse(ulbBody, req.body);
+    if ((await q('SELECT 1 FROM ulbs WHERE code = $1', [b.code])).length) throw new HttpError(409, `A ULB with the code ${b.code} already exists.`);
+    if ((await q('SELECT 1 FROM users WHERE lower(email) = lower($1)', [b.admin.email])).length) throw new HttpError(409, 'A user with this e-mail already exists.');
+    const hash = await bcrypt.hash(b.admin.password, 10);
+    const id = await db.tx(async (t) => {
+      await t("SELECT pg_advisory_xact_lock(hashtext('ulbs'))");
+      const [{ n }] = await t<{ n: number }>('SELECT COALESCE(max(id), 0) + 1 AS n FROM ulbs');
+      const ulb = Number(n);
+      await t(`INSERT INTO ulbs (id, code, name, name_local, state, settings) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [ulb, b.code, b.name, b.name_local, b.state, JSON.stringify({ short_name: b.code, app_title: `${b.code} UGD Tracker` })]);
+      await t('INSERT INTO project_settings (id, ulb_id, name) VALUES ($1, $1, $2)', [ulb, b.project_name ?? `${b.code} UGD Project`]);
+      // the standard compliance lists, as the new ULB's own copy (its System Admin can change them)
+      await loadComplianceItems({ query: t } as never, () => {}, undefined, ulb, `${b.code}:`);
+      await loadDefaultProjectItems({ query: t } as never, ulb, `${b.code}:`);
+      await t(`INSERT INTO users (email, name, designation, role, role_key, areas, password_hash, must_change_password, active, ulb_id)
+               VALUES ($1,$2,'System Admin','system_admin','system_admin','{"all":true}',$3,true,true,$4)`, [b.admin.email, b.admin.name, hash, ulb]);
+      return ulb;
+    });
+    invalidateSettings();
+    await audit(db, u.id, 'ulb_created', { id, code: b.code, name: b.name, admin: b.admin.email }, id);
+    await audit(db, u.id, 'ulb_created', { id, code: b.code, name: b.name, admin: b.admin.email });
+    return { ok: true, id };
+  });
+
+  app.post<{ Params: { id: string } }>('/api/admin/ulbs/:id/switch', async (req) => {
+    const u = stateOnly(req.user!);
+    const id = Number(req.params.id);
+    const r = (await q<{ code: string }>('SELECT code FROM ulbs WHERE id = $1 AND active', [id]))[0];
+    if (!Number.isInteger(id) || !r) throw new HttpError(404, 'ULB not found.');
+    await q(`UPDATE users SET prefs = prefs || $2::jsonb WHERE id = $1`, [u.id, JSON.stringify({ active_ulb: id })]);
+    await audit(db, u.id, 'ulb_switched', { to: id, code: r.code }, u.home_ulb_id);
+    return { ok: true, id, code: r.code };
+  });
+
 }

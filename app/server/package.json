@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit -p .",
-    "test": "tsx src/test/phase1.test.ts && tsx src/test/phase2.test.ts && tsx src/test/issues.test.ts && tsx src/test/workgroups.test.ts && tsx src/test/site.test.ts && tsx src/test/citizens.test.ts && tsx src/test/roles.test.ts && tsx src/test/project.test.ts && tsx src/test/admin.test.ts",
+    "test": "tsx src/test/phase1.test.ts && tsx src/test/phase2.test.ts && tsx src/test/issues.test.ts && tsx src/test/workgroups.test.ts && tsx src/test/site.test.ts && tsx src/test/citizens.test.ts && tsx src/test/roles.test.ts && tsx src/test/project.test.ts && tsx src/test/admin.test.ts && tsx src/test/ulbs.test.ts",
     "test:roles": "tsx src/test/roles.test.ts",
     "export-sql": "tsx src/scripts/export-sql.ts",
     "test:issues": "tsx src/test/issues.test.ts",
@@ -19,6 +19,7 @@
     "test:project": "tsx src/test/project.test.ts",
     "scrub-text": "tsx src/scripts/scrub-text.ts",
     "test:admin": "tsx src/test/admin.test.ts",
+    "test:ulbs": "tsx src/test/ulbs.test.ts",
     "migrate": "tsx src/scripts/migrate.ts",
     "db-check": "tsx src/scripts/db-check.ts"
   },

@@ -21,6 +21,9 @@ import type { Db } from './db.ts';
 import { checkFiles, gpsSchema } from './files.ts';
 import { issuesForCard, syncIssues } from './issues.ts';
 import { has } from './perms.ts';
+import { cur } from './ulbctx.ts';
+/** The current ULB as a plain number (safe to put straight into SQL). */
+const U = () => Number(cur());
 
 export type Q = Db['query'];
 
@@ -38,7 +41,7 @@ export const iso = (d: unknown) => (d ? new Date(d as string).toISOString() : nu
 
 export async function currentItems(q: Q, includeRetired = false): Promise<(ComplianceItem & { retired_at: string | null })[]> {
   const rows = await q<ComplianceItem & { retired_at: unknown }>(
-    `SELECT ${ITEM_COLS} FROM compliance_items WHERE is_current ${includeRetired ? '' : 'AND retired_at IS NULL'} ORDER BY sort, key`,
+    `SELECT ${ITEM_COLS} FROM compliance_items WHERE is_current AND ulb_id = ${U()} ${includeRetired ? '' : 'AND retired_at IS NULL'} ORDER BY sort, key`,
   );
   return rows.map((r) => ({ ...r, retired_at: iso(r.retired_at) }));
 }
@@ -57,7 +60,7 @@ export async function recordsFor(q: Q, code: string): Promise<(ComplianceRecord 
 }
 
 export async function loadStretch(q: Q, code: string, lock = false): Promise<StretchRow> {
-  const rows = await q<StretchRow>(`SELECT * FROM stretches WHERE code = $1 AND deleted_at IS NULL AND NOT hidden ${lock ? 'FOR UPDATE' : ''}`, [code]);
+  const rows = await q<StretchRow>(`SELECT * FROM stretches WHERE code = $1 AND ulb_id = ${U()} AND deleted_at IS NULL AND NOT hidden ${lock ? 'FOR UPDATE' : ''}`, [code]);
   if (!rows.length) throw new HttpError(404, `Road stretch ${code} not found.`);
   return rows[0];
 }
@@ -131,11 +134,13 @@ export async function refresh(q: Q, code: string, actor: string | null = null) {
 
 // Overdue states change with time: refresh stored summaries of started stretches at most every 10 minutes.
 let lastSweep = 0;
+const lastSweepOf = new Map<number, number>();
 export async function sweep(db: Db, force = false) {
-  if (!force && Date.now() - lastSweep < 10 * 60 * 1000) return;
+  if (!force && Date.now() - (lastSweepOf.get(U()) ?? 0) < 10 * 60 * 1000) return;
+  lastSweepOf.set(U(), Date.now());
   lastSweep = Date.now();
   const rows = await db.query<{ code: string }>(
-    `SELECT code FROM stretches WHERE deleted_at IS NULL AND NOT hidden AND (milestones <> '{}'::jsonb OR open_issues > 0
+    `SELECT code FROM stretches WHERE ulb_id = ${U()} AND deleted_at IS NULL AND NOT hidden AND (milestones <> '{}'::jsonb OR open_issues > 0
        OR code IN (SELECT DISTINCT stretch_code FROM compliance_records))`,
   );
   for (const r of rows) await refresh(db.query.bind(db), r.code);
@@ -221,7 +226,7 @@ export function parse<T>(schema: z.ZodType<T>, body: unknown): T {
   }
   return p.data;
 }
-const CODE = /^W\d{1,3}-S?\d{3,5}$/; // DPR W12-034, site W12-S001
+const CODE = /^([A-Z][A-Z0-9]{1,9}-)?W\d{1,3}-S?\d{3,5}$/; // DPR W12-034, site W12-S001; other ULBs: KMC-W12-S001
 export function codeOf(p: { code: string }) {
   if (!CODE.test(p.code)) throw new HttpError(404, 'Road stretch not found.');
   return p.code;
@@ -347,7 +352,7 @@ export async function verifyRecord(t: Q, u: SessionUser, id: number, decision: '
   if (decision === 'reject' && !note.trim()) throw new HttpError(400, 'Give the reason for rejecting.');
   await t(`UPDATE compliance_records SET verification = $2, verified_by = $3, verified_at = now(), verify_note = $4 WHERE id = $1`,
     [id, decision === 'accept' ? 'accepted' : 'rejected', u.id, note.trim()]);
-  const item = await t<{ name: string }>('SELECT name FROM compliance_items WHERE key = $1 AND is_current', [r.item_key]);
+  const item = await t<{ name: string }>(`SELECT name FROM compliance_items WHERE key = $1 AND is_current AND ulb_id = ${U()}`, [r.item_key]);
   await t(
     `INSERT INTO stretch_history (stretch_code, version, kind, by_user, changes, snapshot, note)
      VALUES ($1, $2, 'verification', $3, $4, $5, $6)`,
@@ -366,7 +371,7 @@ export function registerWorks(app: FastifyInstance, db: Db) {
     await sweep(db);
     const rows = await q<{ code: string; stage: string; theme: string | null; badges: string; geom: StretchRow['geom'] }>(
       `SELECT code, stage, compliance->>'theme' AS theme, badges, CASE WHEN badges <> '' THEN geom END AS geom FROM stretches
-       WHERE deleted_at IS NULL AND NOT hidden AND (stage <> 'not_started' OR coalesce(compliance->>'theme', 'nothing_due') <> 'nothing_due' OR badges <> '')`,
+       WHERE ulb_id = ${U()} AND deleted_at IS NULL AND NOT hidden AND (stage <> 'not_started' OR coalesce(compliance->>'theme', 'nothing_due') <> 'nothing_due' OR badges <> '')`,
     );
     // [code, stage, compliance theme, badges, lon, lat] (position only for stretches with badges)
     return {
@@ -471,7 +476,7 @@ export function registerWorks(app: FastifyInstance, db: Db) {
   app.get('/api/works', async (req) => {
     await sweep(db);
     const f = parse(listQuery, req.query);
-    const where: string[] = ['s.deleted_at IS NULL', 'NOT s.hidden'];
+    const where: string[] = ['s.deleted_at IS NULL', 'NOT s.hidden', `s.ulb_id = ${U()}`];
     const params: unknown[] = [];
     const add = (sql: string, v: unknown) => { params.push(v); where.push(sql.replace('?', `$${params.length}`)); };
     if (f.zone) add('s.admin_zone = ?', f.zone);
@@ -533,7 +538,7 @@ export function registerWorks(app: FastifyInstance, db: Db) {
       `SELECT r.id, r.stretch_code, s.ward, s.admin_zone, r.item_key, i.name AS item_name, i.category, i.mandatory, r.unit, r.result, r.value, r.design_value,
               r.value_date, r.reference, r.reason, r.photos, r.documents, r.distance_m, r.recorded_at, u.name AS recorded_by_name, r.recorded_by,
               r.verification, r.verified_at, v.name AS verified_by_name, r.verify_note, count(*) OVER () AS total
-       FROM compliance_records r JOIN stretches s ON s.code = r.stretch_code AND NOT s.hidden JOIN compliance_items i ON i.id = r.item_id
+       FROM compliance_records r JOIN stretches s ON s.code = r.stretch_code AND NOT s.hidden JOIN compliance_items i ON i.id = r.item_id AND s.ulb_id = ${U()}
             JOIN users u ON u.id = r.recorded_by LEFT JOIN users v ON v.id = r.verified_by
        WHERE ${where.join(' AND ')} ORDER BY r.recorded_at DESC, r.id DESC LIMIT ${f.limit} OFFSET ${f.offset}`,
       params,
@@ -553,7 +558,7 @@ export function registerWorks(app: FastifyInstance, db: Db) {
   app.get('/api/compliance/items', async () => ({ items: await currentItems(q, true), stages: COMPLIANCE_STAGES, categories: COMPLIANCE_CATEGORIES }));
 
   app.get<{ Params: { key: string } }>('/api/compliance/items/:key/versions', async (req) => {
-    const rows = await q<Record<string, unknown>>(`SELECT ${ITEM_COLS} FROM compliance_items WHERE key = $1 ORDER BY version DESC`, [req.params.key]);
+    const rows = await q<Record<string, unknown>>(`SELECT ${ITEM_COLS} FROM compliance_items WHERE key = $1 AND ulb_id = ${U()} ORDER BY version DESC`, [req.params.key]);
     return { versions: rows.map((r) => ({ ...r, created_at: iso(r.created_at), retired_at: iso(r.retired_at) })) };
   });
 
@@ -563,13 +568,14 @@ export function registerWorks(app: FastifyInstance, db: Db) {
     const b = parse(itemBody, req.body);
     if (b.pass_rule && !b.evidence.includes('value')) throw new HttpError(400, 'A pass rule needs "Measured value" as evidence.');
     const out = await db.tx(async (t) => {
-      const cur = await t<{ version: number }>('SELECT version FROM compliance_items WHERE key = $1 AND is_current FOR UPDATE', [b.key]);
+      const cur = await t<{ version: number }>(`SELECT version FROM compliance_items WHERE key = $1 AND is_current AND ulb_id = ${U()} FOR UPDATE`, [b.key]);
       const version = cur.length ? cur[0].version + 1 : 1;
-      await t('UPDATE compliance_items SET is_current = false WHERE key = $1 AND is_current', [b.key]);
+      if (!cur.length && (await t('SELECT 1 FROM compliance_items WHERE key = $1 LIMIT 1', [b.key])).length) throw new HttpError(409, 'This key is already used. Choose another key.');
+      await t(`UPDATE compliance_items SET is_current = false WHERE key = $1 AND is_current AND ulb_id = ${U()}`, [b.key]);
       const rows = await t<{ id: number }>(
         `INSERT INTO compliance_items (key, version, sort, name, description, category, due_at, applies, per, evidence, value_label, unit, pass_rule,
-                                       recurring_days, mandatory, severity, gate, grace_days, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id`,
+                                       recurring_days, mandatory, severity, gate, grace_days, created_by, ulb_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,${U()}) RETURNING id`,
         [b.key, version, b.sort, b.name, b.description, b.category, b.due_at, JSON.stringify(b.applies), b.per, JSON.stringify(b.evidence), b.value_label,
           b.unit, b.pass_rule ? JSON.stringify(b.pass_rule) : null, b.recurring_days, b.mandatory, b.severity, b.gate, b.grace_days, u.id],
       );
@@ -584,7 +590,7 @@ export function registerWorks(app: FastifyInstance, db: Db) {
     const u = req.user!;
     if (!has(u, 'compliance.list')) throw new HttpError(403, 'Your role cannot change the compliance list.');
     const b = parse(z.object({ retire: z.boolean() }), req.body);
-    const rows = await q('UPDATE compliance_items SET retired_at = $2 WHERE key = $1 AND is_current RETURNING id', [req.params.key, b.retire ? new Date().toISOString() : null]);
+    const rows = await q(`UPDATE compliance_items SET retired_at = $2 WHERE key = $1 AND is_current AND ulb_id = ${U()} RETURNING id`, [req.params.key, b.retire ? new Date().toISOString() : null]);
     if (!rows.length) throw new HttpError(404, 'Item not found.');
     await audit(db, u.id, b.retire ? 'compliance_item_retired' : 'compliance_item_restored', { key: req.params.key });
     await sweep(db, true);

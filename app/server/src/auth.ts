@@ -16,7 +16,8 @@ import { z } from 'zod';
 import { CSRF_HEADER, PASSWORD_MIN_LENGTH, ROLES, type Role } from 'shared';
 import { COOKIE_SECURE, SEED_FILE, SESSION_DAYS, SESSION_SECRET, STATE_DIR } from './config.ts';
 import type { Db } from './db.ts';
-import { roleEntry } from './perms.ts';
+import { roleEntry, ulbOf } from './perms.ts';
+import { cur, prefixFor, withUlb } from './ulbctx.ts';
 import type { Action } from 'shared';
 
 export const COOKIE = 'wgl_session';
@@ -33,6 +34,10 @@ export interface SessionUser {
   areas: Record<string, unknown>;
   must_change_password: boolean;
   ulb_id: number;
+  home_ulb_id: number;
+  ulb_prefix: string;
+  /** The ULB's short code, name and app title, for the header. */
+  ulb: { code: string; short_name: string; name: string; app_title: string };
   role_key: string;
   role_label: string;
   perms: Action[];
@@ -57,8 +62,8 @@ export function oneTimePassword(): string {
   return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
 }
 
-export async function audit(db: Db, actor: string | null, action: string, detail: Record<string, unknown> = {}) {
-  await db.query('INSERT INTO audit_log (actor, action, detail) VALUES ($1, $2, $3)', [actor, action, JSON.stringify(detail)]);
+export async function audit(db: Db, actor: string | null, action: string, detail: Record<string, unknown> = {}, ulb = cur()) {
+  await db.query('INSERT INTO audit_log (actor, action, detail, ulb_id) VALUES ($1, $2, $3, $4)', [actor, action, JSON.stringify(detail), ulb]);
 }
 
 /** Create starting accounts from the release file, by key, once. */
@@ -117,17 +122,20 @@ async function loadUser(db: Db, req: FastifyRequest): Promise<SessionUser | unde
   }
   if (!/^[0-9a-f-]{36}$/i.test(claims.sub)) return undefined;
   const rows = await db.query<SessionUser & { active: boolean; session_version: number }>(
-    `SELECT id, email, name, designation, role, supervisor, areas, must_change_password, active, session_version, ulb_id, role_key
+    `SELECT id, email, name, designation, role, supervisor, areas, must_change_password, active, session_version, ulb_id, role_key, prefs
      FROM users WHERE id = $1`,
     [claims.sub],
   );
   const u = rows[0];
   if (!u || !u.active || u.session_version !== claims.sv) return undefined;
-  const { active: _a, session_version: _s, ...user } = u;
-  const ulb = Number(user.ulb_id ?? 1);
+  const { active: _a, session_version: _s, prefs, ...user } = u as typeof u & { prefs?: { active_ulb?: number } };
+  const home = Number(user.ulb_id ?? 1);
+  // the State Admin works in the ULB they last switched to
+  const ulb = user.role === 'super_admin' && prefs?.active_ulb ? Number(prefs.active_ulb) : home;
+  const info = await ulbOf(db.query.bind(db), ulb);
   const key = user.role_key || user.role;
   const e = await roleEntry(db.query.bind(db), ulb, key, user.role);
-  return { ...user, ulb_id: ulb, role_key: key, role_label: e.label, perms: e.grants };
+  return { ...user, ulb_id: ulb, home_ulb_id: home, ulb_prefix: prefixFor(ulb, info.code), ulb: { code: info.code, short_name: info.settings.short_name, name: info.name, app_title: info.settings.app_title }, role_key: key, role_label: e.label, perms: e.grants };
 }
 
 // /api/auth/me answers {user: undefined} when signed out (no error), so the app can show the sign-in page.
@@ -155,6 +163,11 @@ export function registerAuth(app: FastifyInstance, db: Db) {
       throw new HttpError(403, 'Please change your one-time password first.', 'PASSWORD_CHANGE_REQUIRED');
     }
   });
+  // everything that answers this request works inside the user's ULB
+  app.addHook('preHandler', (req, _reply, done) => {
+    if (!req.user) return done();
+    withUlb(req.user.ulb_id, req.user.ulb_prefix, done);
+  });
 
   const loginBody = z.object({ email: z.string().trim().min(3).max(200), password: z.string().min(1).max(200) });
   app.post('/api/auth/login', async (req, reply) => {
@@ -170,19 +183,19 @@ export function registerAuth(app: FastifyInstance, db: Db) {
     if (Number(fails[0].n) >= MAX_FAILS) {
       throw new HttpError(429, `Too many failed sign-ins. Try again in ${FAIL_WINDOW_MIN} minutes.`);
     }
-    const rows = await db.query<{ id: string; password_hash: string; active: boolean; session_version: number }>(
-      'SELECT id, password_hash, active, session_version FROM users WHERE lower(email) = lower($1)',
+    const rows = await db.query<{ id: string; password_hash: string; active: boolean; session_version: number; ulb_id: number }>(
+      'SELECT id, password_hash, active, session_version, ulb_id FROM users WHERE lower(email) = lower($1)',
       [email],
     );
     const u = rows[0];
     const ok = !!u && u.active && (await bcrypt.compare(password, u.password_hash));
     await db.query('INSERT INTO sign_in_attempts (email, ip, ok) VALUES ($1, $2, $3)', [email, ip, ok]);
     if (!ok) {
-      await audit(db, u?.id ?? null, 'sign_in_failed', { email, ip });
+      await audit(db, u?.id ?? null, 'sign_in_failed', { email, ip }, Number(u?.ulb_id ?? 1));
       throw new HttpError(401, 'Email or password is not correct.');
     }
     setSession(reply, u.id, u.session_version);
-    await audit(db, u.id, 'sign_in', { ip });
+    await audit(db, u.id, 'sign_in', { ip }, Number(u.ulb_id));
     const user = await db.query('SELECT must_change_password FROM users WHERE id = $1', [u.id]);
     return { ok: true, mustChangePassword: user[0].must_change_password };
   });

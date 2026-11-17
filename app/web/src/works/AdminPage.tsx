@@ -1,11 +1,11 @@
-/** Admin panel: users, roles and the permission grid, organisation and deadlines, audit log. */
+/** Admin panel: users, roles and the permission grid, organisation and deadlines, audit log; for the State Admin also the ULBs. */
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { api, type User } from '../api.ts';
 import { Icon } from '../ui.tsx';
 import { Modal } from './Modal.tsx';
 import { fmtTime } from './util.tsx';
 
-type Section = 'users' | 'roles' | 'settings' | 'audit';
+type Section = 'users' | 'roles' | 'settings' | 'audit' | 'ulbs';
 interface Overview { ulb: { id: number; name: string; name_local: string; code: string; settings: Settings }; users: number; active_users: number; roles_in_use: number; can: Record<string, boolean> }
 interface Settings { short_name: string; app_title: string; grievance_due_days: number; issue_due_days: { high: number; medium: number; low: number } }
 interface URow { id: string; email: string; name: string; designation: string; phone: string; role: string; role_key: string; role_label: string; areas: { all?: boolean; admin_zones?: string[]; wards?: number[] }; active: boolean; last_sign_in: string | null }
@@ -22,6 +22,7 @@ export function AdminPage({ me }: { me: User }) {
     ['users', 'Users', 'users', 'admin.users'], ['roles', 'Roles and permissions', 'compliance', 'admin.roles'],
     ['settings', 'Organisation and deadlines', 'admin', 'admin.settings'], ['audit', 'Audit log', 'works', 'admin.audit'],
   ] as [Section, string, string, string][]).filter((t) => o.can[t[3]]);
+  if (me.role === 'super_admin') tabs.unshift(['ulbs', 'ULBs', 'boundary', '']);
   return (
     <div className="page dash admin">
       <div className="dash-hero">
@@ -36,6 +37,7 @@ export function AdminPage({ me }: { me: User }) {
       {sec === 'roles' && <Roles />}
       {sec === 'settings' && <SettingsForm o={o} onSaved={() => setTick((t) => t + 1)} />}
       {sec === 'audit' && <Audit />}
+      {sec === 'ulbs' && <Ulbs />}
     </div>
   );
 }
@@ -127,7 +129,7 @@ function UserForm({ u, roles, onClose }: { u: URow | null; roles: { key: string;
       </div>
       {f.scope === 'some' && (
         <div className="two">
-          <label className="field">GWMC zones (e.g. Z01, Z03)<input value={f.zones} onChange={(e) => setF({ ...f, zones: e.target.value })} /></label>
+          <label className="field">Zones (e.g. Z01, Z03)<input value={f.zones} onChange={(e) => setF({ ...f, zones: e.target.value })} /></label>
           <label className="field">Wards (e.g. 12, 13, 31)<input value={f.wards} onChange={(e) => setF({ ...f, wards: e.target.value })} /></label>
         </div>
       )}
@@ -347,5 +349,81 @@ function Audit() {
       </div>
       {more && rows.length > 0 && <button className="btn" onClick={() => load(rows[rows.length - 1].id)}>Load older</button>}
     </section>
+  );
+}
+
+// ---------------- ULBs (State Admin) ----------------
+interface UlbRow { id: number; code: string; name: string; name_local: string; state: string; active: boolean; created_at: string; users: number; works: number; open_issues: number; open_grievances: number }
+
+function Ulbs() {
+  const [d, setD] = useState<{ current: number; home: number; ulbs: UlbRow[] } | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [tick, setTick] = useState(0);
+  const [msg, setMsg] = useState('');
+  useEffect(() => { api<typeof d>('/api/admin/ulbs').then(setD); }, [tick]);
+  if (!d) return <p className="muted">Loading…</p>;
+  const open = async (u: UlbRow) => {
+    setMsg('');
+    try { await api(`/api/admin/ulbs/${u.id}/switch`, {}); window.location.reload(); } catch (e) { setMsg((e as Error).message); }
+  };
+  return (
+    <section className="dsec">
+      <div className="dsec-head">
+        <div className="dsec-titles"><span className="dsec-ico"><Icon name="boundary" /></span><div><h3>ULBs on this system</h3><div className="dsec-sub">Each ULB sees only its own works, issues, grievances, users and records. Open a ULB to work in it.</div></div></div>
+        <button className="btn primary" onClick={() => setAdding(true)}>+ Add a ULB</button>
+      </div>
+      <div className="table-wrap">
+        <table className="grid">
+          <thead><tr><th>ULB</th><th>Users</th><th>Works</th><th>Open issues</th><th>Open grievances</th><th>Added</th><th /></tr></thead>
+          <tbody>{d.ulbs.map((u) => (
+            <tr key={u.id}>
+              <td><b>{u.code}</b> · {u.name}<div className="muted small">{u.name_local}{u.state ? ` · ${u.state}` : ''}</div></td>
+              <td className="fig">{u.users}</td><td className="fig">{u.works}</td><td className="fig">{u.open_issues}</td><td className="fig">{u.open_grievances}</td>
+              <td className="small">{fmtTime(u.created_at)}</td>
+              <td>{u.id === d.current ? <span className="pchip ok">Working here</span> : <button className="btn ghost" onClick={() => open(u)}>Open</button>}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+      {msg && <p className="error">{msg}</p>}
+      {adding && <UlbForm onClose={(ch) => { setAdding(false); if (ch) setTick((t) => t + 1); }} />}
+    </section>
+  );
+}
+
+function UlbForm({ onClose }: { onClose: (changed: boolean) => void }) {
+  const [f, setF] = useState({ code: '', name: '', name_local: '', state: 'Telangana', project_name: '', admin_name: '', admin_email: '', admin_password: '' });
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setMsg(''); setBusy(true);
+    try {
+      await api('/api/admin/ulbs', {
+        code: f.code, name: f.name, name_local: f.name_local, state: f.state, ...(f.project_name ? { project_name: f.project_name } : {}),
+        admin: { name: f.admin_name, email: f.admin_email, password: f.admin_password },
+      });
+      onClose(true);
+    } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
+  };
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  return (
+    <Modal title="Add a ULB" onClose={() => onClose(false)}
+      footer={<><span className="grow" /><button className="btn" onClick={() => onClose(false)}>Cancel</button><button className="btn primary" disabled={busy} onClick={save}>{busy ? 'Adding…' : 'Add ULB'}</button></>}>
+      <div className="two">
+        <label className="field">Short code (e.g. KMC)<input value={f.code} maxLength={10} onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase() })} /></label>
+        <label className="field">State<input value={f.state} onChange={set('state')} /></label>
+        <label className="field">Name<input value={f.name} onChange={set('name')} placeholder="e.g. Khammam Municipal Corporation" /></label>
+        <label className="field">Name in Telugu<input value={f.name_local} onChange={set('name_local')} /></label>
+        <label className="field">Project name (optional)<input value={f.project_name} onChange={set('project_name')} placeholder={f.code ? `${f.code} UGD Project` : ''} /></label>
+      </div>
+      <h4>Its System Admin</h4>
+      <div className="two">
+        <label className="field">Name<input value={f.admin_name} onChange={set('admin_name')} /></label>
+        <label className="field">E-mail (user ID)<input type="email" value={f.admin_email} onChange={set('admin_email')} /></label>
+        <label className="field">One-time password (at least 8 characters)<input type="text" value={f.admin_password} onChange={set('admin_password')} autoComplete="new-password" /></label>
+      </div>
+      <p className="muted small">The ULB starts with the standard compliance lists as its own copy. Its codes start with the short code (e.g. {f.code || 'KMC'}-W12-S001). The System Admin changes the password at first sign-in, then adds the ULB's users. Map data (boundary, wards, DPR network) is uploaded in the next step.</p>
+      {msg && <p className="error">{msg}</p>}
+    </Modal>
   );
 }

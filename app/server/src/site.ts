@@ -16,18 +16,23 @@ import { dprManhole, dprPipe } from './dpr.ts';
 import { metres, nearCity, wardAt } from './geo.ts';
 import { can, codeOf, inArea, midpoint, parse, refresh, type Q } from './works.ts';
 import { has } from './perms.ts';
+import { cur, curPrefix } from './ulbctx.ts';
+/** The current ULB as a plain number (safe to put straight into SQL). */
+const U = () => Number(cur());
 
 const canDraw = (u: SessionUser, at: { ward: number; admin_zone: string }) => has(u, 'stretch.create') && inArea(u, at);
 const DRAW_ROLES = 'Only an AEE, DEE or the Commissioner of the area can draw or make work stretches.';
-const LIVE = 'deleted_at IS NULL AND NOT hidden';
+const LIVE = () => `deleted_at IS NULL AND NOT hidden AND ulb_id = ${U()}`;
 
 interface Mh { id: number; code: string; lon: number; lat: number; ward: number; admin_zone: string; depth_m: number | null; invert_m: number | null; note: string; dpr_mh: string | null }
 interface Pipe { id: number; code: string; from_mh: number; to_mh: number; dia_mm: number; material: string; length_m: number; ward: number; admin_zone: string }
 
 /** The next number after the highest one used in `table`.code (pattern captures the number). */
 export async function nextNo(q: Q, table: 'site_manholes' | 'site_pipes' | 'stretches' | 'issues' | 'work_groups', pattern: string) {
-  await q("SELECT pg_advisory_xact_lock(hashtext($1))", [table]); // two people saving at once get different numbers (held to the end of the transaction)
-  const r = await q<{ n: number | null }>(`SELECT max((substring(code from $1))::int) AS n FROM ${table} WHERE code ~ $1`, [pattern]);
+  await q("SELECT pg_advisory_xact_lock(hashtext($1))", [`${table}:${U()}`]); // two people saving at once get different numbers (held to the end of the transaction)
+  // the ULB's own codes only: GWMC "SP-000001", others "KMC-SP-000001"
+  const pat = pattern.startsWith('^') ? `^${curPrefix().replace(/[^A-Za-z0-9]/g, (c) => `\\${c}`)}${pattern.slice(1)}` : pattern;
+  const r = await q<{ n: number | null }>(`SELECT max((substring(code from $1))::int) AS n FROM ${table} WHERE code ~ $1 AND ulb_id = ${U()}`, [pat]);
   return (r[0].n ?? 0) + 1;
 }
 
@@ -35,7 +40,7 @@ async function event(q: Q, by: string, action: string, detail: Record<string, un
   await q('INSERT INTO site_events (by_user, action, detail) VALUES ($1,$2,$3)', [by, action, JSON.stringify(detail)]);
 }
 async function loadMh(q: Q, id: number, lock = false): Promise<Mh> {
-  const r = await q<Mh>(`SELECT * FROM site_manholes WHERE id = $1 AND ${LIVE} ${lock ? 'FOR UPDATE' : ''}`, [id]);
+  const r = await q<Mh>(`SELECT * FROM site_manholes WHERE id = $1 AND ${LIVE()} ${lock ? 'FOR UPDATE' : ''}`, [id]);
   if (!r.length) throw new HttpError(404, 'Manhole not found.');
   return { ...r[0], id: Number(r[0].id) };
 }
@@ -86,7 +91,7 @@ async function stretchFields(q: Q, siteIds: number[], dprIds: string[]) {
       `SELECT p.*, a.code AS a_code, a.lon AS a_lon, a.lat AS a_lat, a.depth_m AS a_depth, a.invert_m AS a_inv,
               b.code AS b_code, b.lon AS b_lon, b.lat AS b_lat, b.depth_m AS b_depth, b.invert_m AS b_inv
        FROM site_pipes p JOIN site_manholes a ON a.id = p.from_mh JOIN site_manholes b ON b.id = p.to_mh
-       WHERE p.id = ANY($1::bigint[]) AND p.deleted_at IS NULL AND NOT p.hidden ORDER BY p.id`, [[...new Set(siteIds)]]);
+       WHERE p.id = ANY($1::bigint[]) AND p.ulb_id = ${U()} AND p.deleted_at IS NULL AND NOT p.hidden ORDER BY p.id`, [[...new Set(siteIds)]]);
     if (rows.length !== new Set(siteIds).size) throw new HttpError(400, 'Some of the selected drawn pipelines were not found (deleted?).');
     for (const p of rows)
       parts.push({ code: p.code, dia: p.dia_mm, from: p.a_code, to: p.b_code, length: p.length_m, ward: p.ward, zone: p.admin_zone,
@@ -149,15 +154,15 @@ export function registerSite(app: FastifyInstance, db: Db) {
   app.get('/api/site/map', async () => {
     const mhs = await q<Mh & { pipes: string }>(
       `SELECT m.*, (SELECT count(*) FROM site_pipes p WHERE p.deleted_at IS NULL AND NOT p.hidden AND (p.from_mh = m.id OR p.to_mh = m.id)) AS pipes
-       FROM site_manholes m WHERE m.deleted_at IS NULL AND NOT m.hidden`);
+       FROM site_manholes m WHERE m.deleted_at IS NULL AND NOT m.hidden AND m.ulb_id = ${U()}`);
     const pipes = await q<Pipe & { a_lon: number; a_lat: number; b_lon: number; b_lat: number; stretch: string | null; a_code: string; b_code: string }>(
       `SELECT p.*, a.lon AS a_lon, a.lat AS a_lat, b.lon AS b_lon, b.lat AS b_lat, a.code AS a_code, b.code AS b_code, sp.stretch_code AS stretch
        FROM site_pipes p JOIN site_manholes a ON a.id = p.from_mh JOIN site_manholes b ON b.id = p.to_mh
-       LEFT JOIN stretch_pipes sp ON sp.pipe_id = p.code WHERE p.deleted_at IS NULL AND NOT p.hidden`);
+       LEFT JOIN stretch_pipes sp ON sp.pipe_id = p.code WHERE p.deleted_at IS NULL AND NOT p.hidden AND p.ulb_id = ${U()}`);
     const sts = await q<{ code: string; road_name: string; stage: string; theme: string | null; badges: string; geom: { type: string; coordinates: unknown }; length_m: number }>(
-      `SELECT code, road_name, stage, compliance->>'theme' AS theme, badges, geom, length_m FROM stretches WHERE source = 'site' AND deleted_at IS NULL AND NOT hidden`);
+      `SELECT code, road_name, stage, compliance->>'theme' AS theme, badges, geom, length_m FROM stretches WHERE source = 'site' AND ulb_id = ${U()} AND deleted_at IS NULL AND NOT hidden`);
     const taken = await q<{ pipe_id: string; stretch_code: string }>(
-      `SELECT sp.pipe_id, sp.stretch_code FROM stretch_pipes sp JOIN stretches s ON s.code = sp.stretch_code WHERE NOT s.hidden AND sp.pipe_id LIKE 'P%'`);
+      `SELECT sp.pipe_id, sp.stretch_code FROM stretch_pipes sp JOIN stretches s ON s.code = sp.stretch_code WHERE NOT s.hidden AND s.ulb_id = ${U()} AND sp.pipe_id NOT LIKE '%SP-%'`);
     const fc = (features: unknown[]) => ({ type: 'FeatureCollection', features });
     return {
       manholes: fc(mhs.map((m) => ({ type: 'Feature', id: Number(m.id), geometry: { type: 'Point', coordinates: [m.lon, m.lat] },
@@ -178,7 +183,7 @@ export function registerSite(app: FastifyInstance, db: Db) {
     if (b.dpr_mh) {
       const pos = dprManhole(b.dpr_mh);
       if (!pos) throw new HttpError(400, `DPR manhole ${b.dpr_mh} not found.`);
-      const have = await q<Mh>(`SELECT * FROM site_manholes WHERE dpr_mh = $1 AND ${LIVE}`, [b.dpr_mh]);
+      const have = await q<Mh>(`SELECT * FROM site_manholes WHERE dpr_mh = $1 AND ${LIVE()}`, [b.dpr_mh]);
       if (have.length) return { ok: true, id: Number(have[0].id), code: have[0].code, ward: have[0].ward, outside_ward: false, existing: true };
       [lon, lat] = pos;
       code = b.dpr_mh;
@@ -188,12 +193,12 @@ export function registerSite(app: FastifyInstance, db: Db) {
     const w = wardAt(lon, lat);
     if (!canDraw(u, w)) throw new HttpError(403, DRAW_ROLES);
     return db.tx(async (t) => {
-      if (!code) code = `SMH-${String(await nextNo(t, 'site_manholes', '^SMH-(\\d+)$')).padStart(4, '0')}`;
-      if ((await t('SELECT 1 FROM site_manholes WHERE lower(code) = lower($1) AND deleted_at IS NULL AND NOT hidden', [code])).length)
+      if (!code) code = `${curPrefix()}SMH-${String(await nextNo(t, 'site_manholes', '^SMH-(\\d+)$')).padStart(4, '0')}`;
+      if ((await t(`SELECT 1 FROM site_manholes WHERE lower(code) = lower($1) AND ulb_id = ${U()} AND deleted_at IS NULL AND NOT hidden`, [code])).length)
         throw new HttpError(400, `Manhole number ${code} is already used. Give another number.`);
       const r = await t<{ id: string }>(
-        `INSERT INTO site_manholes (code, lon, lat, ward, admin_zone, outside_ward, depth_m, invert_m, note, created_by, updated_by, dpr_mh)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11) RETURNING id`,
+        `INSERT INTO site_manholes (code, lon, lat, ward, admin_zone, outside_ward, depth_m, invert_m, note, created_by, updated_by, dpr_mh, ulb_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11,${U()}) RETURNING id`,
         [code, lon, lat, w.ward, w.admin_zone, w.outside, b.depth_m ?? null, b.invert_m ?? null, b.note, u.id, b.dpr_mh ?? null]);
       const id = Number(r[0].id);
       await event(t, u.id, 'manhole_added', { id, code, ward: w.ward, dpr_mh: b.dpr_mh ?? null });
@@ -210,7 +215,7 @@ export function registerSite(app: FastifyInstance, db: Db) {
       const moving = b.lon !== undefined && b.lat !== undefined && (b.lon !== m.lon || b.lat !== m.lat);
       if (m.dpr_mh && (moving || (b.code && b.code !== m.code))) throw new HttpError(400, 'This manhole is a DPR manhole: its number and position come from the DPR.');
       if (b.code && b.code.toLowerCase() !== m.code.toLowerCase()) {
-        if ((await t('SELECT 1 FROM site_manholes WHERE lower(code) = lower($1) AND deleted_at IS NULL AND NOT hidden AND id <> $2', [b.code, m.id])).length)
+        if ((await t(`SELECT 1 FROM site_manholes WHERE lower(code) = lower($1) AND ulb_id = ${U()} AND deleted_at IS NULL AND NOT hidden AND id <> $2`, [b.code, m.id])).length)
           throw new HttpError(400, `Manhole number ${b.code} is already used.`);
       }
       const pipes = await t<Pipe>('SELECT * FROM site_pipes WHERE deleted_at IS NULL AND NOT hidden AND (from_mh = $1 OR to_mh = $1)', [m.id]);
@@ -266,9 +271,9 @@ export function registerSite(app: FastifyInstance, db: Db) {
       const len = metres(a.lon, a.lat, c.lon, c.lat);
       if (len < 0.5) throw new HttpError(400, 'The two manholes are at the same place.');
       if (len > 1000) throw new HttpError(400, `That pipeline would be ${Math.round(len)} m long. Put manholes along the way (at most 1,000 m between two).`);
-      const code = `SP-${String(await nextNo(t, 'site_pipes', '^SP-(\\d+)$')).padStart(6, '0')}`;
+      const code = `${curPrefix()}SP-${String(await nextNo(t, 'site_pipes', '^SP-(\\d+)$')).padStart(6, '0')}`;
       const r = await t<{ id: string }>(
-        `INSERT INTO site_pipes (code, from_mh, to_mh, dia_mm, material, length_m, ward, admin_zone, note, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+        `INSERT INTO site_pipes (code, from_mh, to_mh, dia_mm, material, length_m, ward, admin_zone, note, created_by, ulb_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,${U()}) RETURNING id`,
         [code, a.id, c.id, b.dia_mm, b.material, len, mid.ward, mid.admin_zone, b.note, u.id]);
       await event(t, u.id, 'pipe_added', { id: Number(r[0].id), code, from: a.code, to: c.code, dia_mm: b.dia_mm });
       return { ok: true, id: Number(r[0].id), code, length_m: Math.round(len * 10) / 10 };
@@ -278,7 +283,7 @@ export function registerSite(app: FastifyInstance, db: Db) {
   app.post<{ Params: { id: string } }>('/api/site/pipes/:id/delete', async (req) => {
     const u = req.user!;
     return db.tx(async (t) => {
-      const r = await t<Pipe>('SELECT * FROM site_pipes WHERE id = $1 AND deleted_at IS NULL AND NOT hidden FOR UPDATE', [Number(req.params.id)]);
+      const r = await t<Pipe>(`SELECT * FROM site_pipes WHERE id = $1 AND ulb_id = ${U()} AND deleted_at IS NULL AND NOT hidden FOR UPDATE`, [Number(req.params.id)]);
       if (!r.length) throw new HttpError(404, 'Pipeline not found.');
       const p = r[0];
       if (!canDraw(u, p)) throw new HttpError(403, DRAW_ROLES);
@@ -316,10 +321,10 @@ export function registerSite(app: FastifyInstance, db: Db) {
       const taken = await t<{ pipe_id: string; stretch_code: string }>('SELECT pipe_id, stretch_code FROM stretch_pipes WHERE pipe_id = ANY($1::text[])', [f.codes]);
       if (taken.length) throw new HttpError(400, `Already in a work stretch: ${taken.slice(0, 10).map((x) => `${x.pipe_id} (${x.stretch_code})`).join(', ')}.`);
       const n = await nextNo(t, 'stretches', '-S(\\d+)$');
-      const code = `W${f.ward}-S${String(n).padStart(3, '0')}`;
+      const code = `${curPrefix()}W${f.ward}-S${String(n).padStart(3, '0')}`;
       await t(
-        `INSERT INTO stretches (code, ward, admin_zone, catchment, road_name, length_m, planned_manholes, dia_m, max_dia_mm, max_depth_m, geom, pipes, manholes, status, source, updated_by, start_point, end_point)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'site',$15,$16,$17)`,
+        `INSERT INTO stretches (code, ward, admin_zone, catchment, road_name, length_m, planned_manholes, dia_m, max_dia_mm, max_depth_m, geom, pipes, manholes, status, source, updated_by, start_point, end_point, ulb_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'site',$15,$16,$17,${U()})`,
         [code, f.ward, f.admin_zone, f.catchment, b.name, f.length_m, f.planned_manholes, JSON.stringify(f.dia_m), f.max_dia_mm, f.max_depth_m,
           JSON.stringify(f.geom), JSON.stringify(f.pipes), JSON.stringify(f.manholes), JSON.stringify(EMPTY_STATUS), u.id,
           JSON.stringify(b.start_point ? { code: b.start_point.code ?? '', ...b.start_point, typed: true } : f.start_point),
@@ -342,13 +347,13 @@ export function registerSite(app: FastifyInstance, db: Db) {
     const b = parse(z.object({ add: ids, remove: ids, add_dpr: dprIds, remove_dpr: dprIds, name: z.string().trim().min(3).max(200).optional() }), req.body);
     const out = await db.tx(async (t) => {
       const st = (await t<{ code: string; source: string; ward: number; admin_zone: string; pipes: [string][]; version: number; road_name: string; status: unknown; approval: string; stage: string }>(
-        'SELECT * FROM stretches WHERE code = $1 AND deleted_at IS NULL AND NOT hidden FOR UPDATE', [code]))[0];
+        `SELECT * FROM stretches WHERE code = $1 AND ulb_id = ${U()} AND deleted_at IS NULL AND NOT hidden FOR UPDATE`, [code]))[0];
       if (!st) throw new HttpError(404, 'Work stretch not found.');
       if (st.source !== 'site') throw new HttpError(400, 'Only work stretches can be changed here.');
       if (!canDraw(u, st)) throw new HttpError(403, DRAW_ROLES);
       const curCodes = st.pipes.map((p) => p[0]);
       const curDpr = curCodes.filter((c) => /^P\d{6}$/.test(c));
-      const curSite = (await t<{ id: string; code: string }>('SELECT id, code FROM site_pipes WHERE code = ANY($1::text[])', [curCodes])).map((r) => ({ id: Number(r.id), code: r.code }));
+      const curSite = (await t<{ id: string; code: string }>(`SELECT id, code FROM site_pipes WHERE code = ANY($1::text[]) AND ulb_id = ${U()}`, [curCodes])).map((r) => ({ id: Number(r.id), code: r.code }));
       const site = [...new Set([...curSite.filter((x) => !b.remove.includes(x.id)).map((x) => x.id), ...b.add])];
       const dpr = [...new Set([...curDpr.filter((x) => !b.remove_dpr.includes(x)), ...b.add_dpr])];
       if (!site.length && !dpr.length) throw new HttpError(400, 'A work stretch needs at least one pipe.');
@@ -382,7 +387,7 @@ export function registerSite(app: FastifyInstance, db: Db) {
     for (const p of [b.start_point, b.end_point]) if (!nearCity(p.lon, p.lat)) throw new HttpError(400, 'A point is outside the city area. Check latitude and longitude.');
     await db.tx(async (t) => {
       const st = (await t<{ ward: number; admin_zone: string; version: number; start_point: unknown; end_point: unknown; status: unknown; approval: string; stage: string }>(
-        `SELECT * FROM stretches WHERE code = $1 AND source = 'site' AND deleted_at IS NULL AND NOT hidden FOR UPDATE`, [code]))[0];
+        `SELECT * FROM stretches WHERE code = $1 AND ulb_id = ${U()} AND source = 'site' AND deleted_at IS NULL AND NOT hidden FOR UPDATE`, [code]))[0];
       if (!st) throw new HttpError(404, 'Work stretch not found.');
       if (!canDraw(u, st)) throw new HttpError(403, DRAW_ROLES);
       const s = { ...b.start_point, code: b.start_point.code ?? '', typed: true };
@@ -404,7 +409,7 @@ export function registerSite(app: FastifyInstance, db: Db) {
     const b = parse(z.object({ name: z.string().trim().min(3, 'Give a name of at least 3 letters.').max(200) }), req.body);
     await db.tx(async (t) => {
       const st = (await t<{ ward: number; admin_zone: string; version: number; road_name: string; status: unknown; approval: string; stage: string }>(
-        `SELECT * FROM stretches WHERE code = $1 AND source = 'site' AND deleted_at IS NULL AND NOT hidden FOR UPDATE`, [code]))[0];
+        `SELECT * FROM stretches WHERE code = $1 AND ulb_id = ${U()} AND source = 'site' AND deleted_at IS NULL AND NOT hidden FOR UPDATE`, [code]))[0];
       if (!st) throw new HttpError(404, 'Work stretch not found.');
       if (!canDraw(u, st)) throw new HttpError(403, DRAW_ROLES);
       if (st.road_name === b.name) return;
@@ -423,11 +428,11 @@ export function registerSite(app: FastifyInstance, db: Db) {
     const like = `%${s}%`;
     const out: { kind: string; label: string; detail: string; lon: number; lat: number; code?: string }[] = [];
     for (const st of await q<{ code: string; road_name: string; ward: number; geom: { type: string; coordinates: unknown } }>(
-      `SELECT code, road_name, ward, geom FROM stretches WHERE source = 'site' AND deleted_at IS NULL AND NOT hidden AND (code ILIKE $1 OR road_name ILIKE $1) LIMIT 10`, [like])) {
+      `SELECT code, road_name, ward, geom FROM stretches WHERE source = 'site' AND ulb_id = ${U()} AND deleted_at IS NULL AND NOT hidden AND (code ILIKE $1 OR road_name ILIKE $1) LIMIT 10`, [like])) {
       const [lon, lat] = midpoint(st.geom);
       out.push({ kind: 'Work stretch', label: st.code, detail: `${st.road_name} · ward ${st.ward}`, lon, lat, code: st.code });
     }
-    for (const m of await q<Mh>(`SELECT * FROM site_manholes WHERE ${LIVE} AND dpr_mh IS NULL AND code ILIKE $1 LIMIT 8`, [like]))
+    for (const m of await q<Mh>(`SELECT * FROM site_manholes WHERE ${LIVE()} AND dpr_mh IS NULL AND code ILIKE $1 LIMIT 8`, [like]))
       out.push({ kind: 'Drawn manhole', label: m.code, detail: `ward ${m.ward}`, lon: m.lon, lat: m.lat });
     return { results: out };
   });

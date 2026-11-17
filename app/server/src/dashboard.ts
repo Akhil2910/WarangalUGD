@@ -11,6 +11,9 @@ import { projectState } from './project.ts';
 import { dprPipe, planTotals } from './dpr.ts';
 import { iso, parse, type Q } from './works.ts';
 import { zoneOfWard } from './geo.ts';
+import { cur, curPrefix } from './ulbctx.ts';
+/** The current ULB as a plain number (safe to put straight into SQL). */
+const U = () => Number(cur());
 
 interface W {
   code: string; ward: number; admin_zone: string; road_name: string; length_m: number; planned_manholes: number; status: WorkStatus; stage: string; approval: string;
@@ -36,7 +39,7 @@ export function registerDashboard(app: FastifyInstance, db: Db) {
 
     // ---- work stretches ----
     const works = (await q<W>(`SELECT code, ward, admin_zone, road_name, length_m, planned_manholes, status, stage, approval, compliance, open_issues, updated_at, created_at, pipes
-      FROM stretches WHERE source = 'site' AND deleted_at IS NULL AND NOT hidden`))
+      FROM stretches WHERE source = 'site' AND ulb_id = ${U()} AND deleted_at IS NULL AND NOT hidden`))
       .map((w) => ({ ...w, sewer: w.pipes.map((p) => dprPipe(p[0])?.sewer_zone).find(Boolean) ?? '' }))
       .filter(inArea);
     const wardOf = new Map(works.map((w) => [w.code, w]));
@@ -44,10 +47,10 @@ export function registerDashboard(app: FastifyInstance, db: Db) {
     // ---- issues and grievances ----
     const issues = (await q<{ code: string; kind: string; severity: string; status: string; ward: number | null; admin_zone: string; stretch_code: string | null; created_at: unknown; resolved_at: unknown; due_date: unknown }>(
       `SELECT i.code, i.kind, i.severity, i.status, i.ward, i.admin_zone, i.stretch_code, i.created_at, i.resolved_at, i.due_date FROM issues i
-       LEFT JOIN stretches s ON s.code = i.stretch_code WHERE NOT coalesce(s.hidden, false)`))
+       LEFT JOIN stretches s ON s.code = i.stretch_code WHERE i.ulb_id = ${U()} AND NOT coalesce(s.hidden, false)`))
       .map((i) => ({ ...i, sewer: i.stretch_code ? wardOf.get(i.stretch_code)?.sewer ?? '' : '' })).filter(inArea);
     const griev = (await q<{ number: string; category: string; status: string; ward: number | null; admin_zone: string; stretch_code: string | null; created_at: unknown; resolved_at: unknown; due_date: unknown }>(
-      `SELECT number, category, status, ward, admin_zone, stretch_code, created_at, resolved_at, due_date FROM grievances`))
+      `SELECT number, category, status, ward, admin_zone, stretch_code, created_at, resolved_at, due_date FROM grievances WHERE ulb_id = ${U()}`))
       .map((g) => ({ ...g, sewer: g.stretch_code ? wardOf.get(g.stretch_code)?.sewer ?? '' : '' })).filter(inArea);
     const isOpenI = (i: { status: string }) => i.status !== 'resolved';
     const isOpenG = (g: { status: string }) => g.status === 'new' || g.status === 'assigned';
@@ -113,7 +116,7 @@ export function registerDashboard(app: FastifyInstance, db: Db) {
     const since = new Date(Date.now() - 30 * 86400000);
     const hist = await q<{ stretch_code: string; at: unknown; kind: string; snapshot: { status: WorkStatus }; by_user: string | null }>(
       `SELECT h.stretch_code, h.at, h.kind, h.snapshot, h.by_user FROM stretch_history h JOIN stretches s ON s.code = h.stretch_code
-       WHERE s.source = 'site' AND NOT s.hidden ORDER BY h.stretch_code, h.at, h.id`);
+       WHERE s.source = 'site' AND s.ulb_id = ${U()} AND NOT s.hidden ORDER BY h.stretch_code, h.at, h.id`);
     const days: string[] = [];
     for (let i = 29; i >= 0; i--) days.push(indiaDate(new Date(Date.now() - i * 86400000)));
     const trend = new Map(days.map((d) => [d, { date: d, updates: 0, laid_m: 0, issues_opened: 0, issues_resolved: 0, grievances: 0, grievances_resolved: 0 }]));
@@ -145,15 +148,15 @@ export function registerDashboard(app: FastifyInstance, db: Db) {
               (SELECT count(*) FROM compliance_records r JOIN stretches s ON s.code = r.stretch_code WHERE r.recorded_by = u.id AND NOT s.hidden AND r.recorded_at > now() - interval '7 days') AS records,
               (SELECT count(*) FROM issues i WHERE i.created_by = u.id AND i.created_at > now() - interval '7 days') AS issues,
               (SELECT max(h.at) FROM stretch_history h JOIN stretches s ON s.code = h.stretch_code WHERE h.by_user = u.id AND NOT s.hidden) AS last_at
-       FROM users u WHERE u.active AND u.role <> 'viewer' ORDER BY u.name`);
+       FROM users u WHERE u.active AND u.role <> 'viewer' AND u.ulb_id = ${U()} ORDER BY u.name`);
 
     // ---- compliance by item ----
     const items = await q<{ key: string; name: string; stage: string; complied: string; verified: string; not_complied: string; waiting: string }>(
       `SELECT i.key, i.name, i.due_at AS stage,
               count(r.*) FILTER (WHERE r.result = 'complied') AS complied, count(r.*) FILTER (WHERE r.verification = 'accepted' AND r.result <> 'not_complied') AS verified,
               count(r.*) FILTER (WHERE r.result = 'not_complied') AS not_complied, count(r.*) FILTER (WHERE r.verification = 'waiting') AS waiting
-       FROM compliance_items i LEFT JOIN compliance_records r ON r.item_key = i.key AND r.stretch_code IN (SELECT code FROM stretches WHERE source = 'site' AND NOT hidden ${f.ward ? `AND ward = ${Number(f.ward)}` : ''})
-       WHERE i.is_current AND i.retired_at IS NULL GROUP BY i.key, i.name, i.due_at, i.sort ORDER BY i.sort`);
+       FROM compliance_items i LEFT JOIN compliance_records r ON r.item_key = i.key AND r.stretch_code IN (SELECT code FROM stretches WHERE source = 'site' AND ulb_id = ${U()} AND NOT hidden ${f.ward ? `AND ward = ${Number(f.ward)}` : ''})
+       WHERE i.is_current AND i.ulb_id = ${U()} AND i.retired_at IS NULL GROUP BY i.key, i.name, i.due_at, i.sort ORDER BY i.sort`);
 
     const idle = works.filter((w) => !['not_started', 'restored_approved'].includes(w.stage) && new Date(w.updated_at as string) < new Date(Date.now() - 7 * 86400000))
       .map((w) => ({ code: w.code, name: w.road_name, ward: w.ward, stage: w.stage, last_update: iso(w.updated_at) }));

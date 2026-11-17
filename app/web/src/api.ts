@@ -8,6 +8,7 @@ export interface User {
   role: string;
   must_change_password: boolean;
   ulb_id: number;
+  ulb?: { code: string; short_name: string; name: string; app_title: string };
   role_key: string;
   role_label: string;
   perms: string[];

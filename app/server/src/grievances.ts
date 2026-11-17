@@ -20,6 +20,9 @@ import { checkFiles, gpsSchema, storeFile } from './files.ts';
 import { can, codeOf, inArea, iso, midpoint, parse, type Q } from './works.ts';
 import { reportIssue } from './issues.ts';
 import { has, ulbOf } from './perms.ts';
+import { cur, curPrefix, prefixFor, withUlb } from './ulbctx.ts';
+/** The current ULB as a plain number (safe to put straight into SQL). */
+const U = () => Number(cur());
 
 // ---------- limits for the public form (per address, in memory) ----------
 const hits = new Map<string, number[]>();
@@ -37,7 +40,7 @@ export function resetPublicLimits() {
 
 /** The random token behind a work stretch's QR code (made the first time it is needed). */
 async function qrToken(q: Q, code: string) {
-  const r = await q<{ qr_token: string | null }>(`SELECT qr_token FROM stretches WHERE code = $1 AND deleted_at IS NULL AND NOT hidden`, [code]);
+  const r = await q<{ qr_token: string | null }>(`SELECT qr_token FROM stretches WHERE code = $1 AND ulb_id = ${Number(cur())} AND deleted_at IS NULL AND NOT hidden`, [code]);
   if (!r.length) throw new HttpError(404, 'Work stretch not found.');
   if (r[0].qr_token) return r[0].qr_token;
   const t = randomBytes(9).toString('base64url');
@@ -47,15 +50,15 @@ async function qrToken(q: Q, code: string) {
 const baseUrl = (req: FastifyRequest) => process.env.PUBLIC_BASE_URL?.replace(/\/$/, '') || `${req.protocol}://${req.headers.host}`;
 
 async function nextNumber(q: Q) {
-  await q("SELECT pg_advisory_xact_lock(hashtext('grievances'))");
-  const r = await q<{ n: number | null }>(`SELECT max((substring(number from '^G-(\\d+)$'))::int) AS n FROM grievances`);
-  return `G-${String((r[0].n ?? 0) + 1).padStart(6, '0')}`;
+  await q('SELECT pg_advisory_xact_lock(hashtext($1))', [`grievances:${U()}`]);
+  const r = await q<{ n: number | null }>(`SELECT max((substring(number from '(\\d+)$'))::int) AS n FROM grievances WHERE ulb_id = ${U()}`);
+  return `${curPrefix()}G-${String((r[0].n ?? 0) + 1).padStart(6, '0')}`;
 }
 
 /** The AEE responsible for a ward: an active AEE whose areas include it (first by name). */
 async function aeeFor(q: Q, ward: number | null, zone: string) {
   const rows = await q<{ id: string; name: string; areas: { all?: boolean; wards?: (number | string)[]; admin_zones?: string[] } }>(
-    `SELECT id, name, areas FROM users WHERE role = 'aee' AND active ORDER BY name`);
+    `SELECT id, name, areas FROM users WHERE role = 'aee' AND active AND ulb_id = ${U()} ORDER BY name`);
   const a = rows.find((u) => u.areas?.all || (ward !== null && (u.areas?.wards ?? []).map(Number).includes(ward)) || (u.areas?.admin_zones ?? []).includes(zone));
   return a?.id ?? null;
 }
@@ -80,23 +83,26 @@ export function registerGrievances(app: FastifyInstance, db: Db) {
   // ---------------- public (citizens, no account) ----------------
   const byToken = async (token: string) => {
     if (!/^[A-Za-z0-9_-]{8,24}$/.test(token)) throw new HttpError(404, 'This QR code is not valid. / ఈ QR కోడ్ చెల్లదు.');
-    const r = await q<{ code: string; road_name: string; ward: number; admin_zone: string; stage: string; geom: { type: string; coordinates: unknown }; length_m: number; start_point: unknown; end_point: unknown }>(
-      `SELECT code, road_name, ward, admin_zone, stage, geom, length_m, start_point, end_point FROM stretches WHERE qr_token = $1 AND deleted_at IS NULL AND NOT hidden`, [token]);
+    const r = await q<{ ulb_id: number; code: string; road_name: string; ward: number; admin_zone: string; stage: string; geom: { type: string; coordinates: unknown }; length_m: number; start_point: unknown; end_point: unknown }>(
+      `SELECT ulb_id, code, road_name, ward, admin_zone, stage, geom, length_m, start_point, end_point FROM stretches WHERE qr_token = $1 AND deleted_at IS NULL AND NOT hidden`, [token]);
     if (!r.length) throw new HttpError(404, 'This QR code is not valid. / ఈ QR కోడ్ చెల్లదు.');
     return r[0];
   };
+  /** Citizens have no account: their request works in the ULB of the road behind the QR code. */
+  const inUlbOf = async <T>(s: { ulb_id: number }, fn: () => Promise<T>): Promise<T> =>
+    withUlb(s.ulb_id, prefixFor(s.ulb_id, (await ulbOf(q, s.ulb_id)).code), fn);
   app.get<{ Params: { token: string } }>('/api/public/w/:token', async (req) => {
     limit(req, 'view', 120, 10);
     const s = await byToken(req.params.token);
-    return { code: s.code, name: s.road_name, ward: s.ward, zone: s.admin_zone, stage: stageLabel(s.stage), length_m: Math.round(s.length_m), categories: GRIEVANCE_CATEGORIES, due_days: (await ulbOf(q)).settings.grievance_due_days };
+    return { code: s.code, name: s.road_name, ward: s.ward, zone: s.admin_zone, stage: stageLabel(s.stage), length_m: Math.round(s.length_m), categories: GRIEVANCE_CATEGORIES, due_days: (await ulbOf(q, s.ulb_id)).settings.grievance_due_days };
   });
 
   const photoBody = z.object({ name: z.string().max(200).default(''), mime: z.string().max(60), data: z.string().min(10), token: z.string().max(24) });
   app.post('/api/public/photos', { bodyLimit: 6 * 1024 * 1024 }, async (req) => {
     limit(req, 'photo', 15, 60);
     const b = parse(photoBody, req.body);
-    await byToken(b.token);
-    return { id: await storeFile(db, { kind: 'photo', name: b.name, mime: b.mime, data: b.data }, null, true) };
+    const s = await byToken(b.token);
+    return { id: await inUlbOf(s, () => storeFile(db, { kind: 'photo', name: b.name, mime: b.mime, data: b.data }, null, true)) };
   });
 
   const gBody = z.object({
@@ -116,20 +122,20 @@ export function registerGrievances(app: FastifyInstance, db: Db) {
       if (ok.length !== new Set(b.photos).size) throw new HttpError(400, 'A photo was not received. Please add it again.');
     }
     const [lon, lat] = b.gps ? [b.gps.lon, b.gps.lat] : midpoint(s.geom);
-    const out = await db.tx(async (t) => {
+    const out = await inUlbOf(s, () => db.tx(async (t) => {
       const number = await nextNumber(t);
       const due = addDays(indiaDate(), (await ulbOf(t)).settings.grievance_due_days);
       const aee = await aeeFor(t, s.ward, s.admin_zone);
       const r = await t<{ id: string }>(
-        `INSERT INTO grievances (number, stretch_code, lon, lat, ward, admin_zone, category, description, photos, name, mobile, house_no, language, consent, status, assignee, due_date, client_ip)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true,$14,$15,$16,$17) RETURNING id`,
+        `INSERT INTO grievances (number, stretch_code, lon, lat, ward, admin_zone, category, description, photos, name, mobile, house_no, language, consent, status, assignee, due_date, client_ip, ulb_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true,$14,$15,$16,$17,${U()}) RETURNING id`,
         [number, s.code, lon, lat, s.ward, s.admin_zone, b.category, b.description, JSON.stringify(b.photos), b.name, mobile, b.house_no, b.language,
           aee ? 'assigned' : 'new', aee, due, req.ip]);
       const id = Number(r[0].id);
       await event(t, id, null, 'received', 'Received from the QR code at the work site', true);
       if (aee) await event(t, id, null, 'assigned', 'Sent to the AEE of the ward');
       return { number, due_date: due };
-    });
+    }));
     return { ok: true, ...out };
   });
 
@@ -137,7 +143,7 @@ export function registerGrievances(app: FastifyInstance, db: Db) {
     limit(req, 'status', 30, 10);
     const mobile = normaliseMobile(req.query.mobile ?? '');
     const notFound = new HttpError(404, 'No complaint found with this number and mobile. / ఈ నంబర్ మరియు మొబైల్‌తో ఫిర్యాదు లేదు.');
-    if (!/^G-\d{6}$/.test(req.params.number) || !mobile) throw notFound;
+    if (!/^([A-Z][A-Z0-9]{1,9}-)?G-\d{6}$/.test(req.params.number) || !mobile) throw notFound;
     const r = await q<Record<string, unknown>>(`SELECT id, number, category, status, created_at, due_date, resolved_at, stretch_code FROM grievances WHERE number = $1 AND mobile = $2`, [req.params.number, mobile]);
     if (!r.length) throw notFound;
     const ev = await q<{ at: unknown; action: string; note: string }>(`SELECT at, action, note FROM grievance_events WHERE grievance_id = $1 AND public_note ORDER BY at`, [r[0].id]);
@@ -173,7 +179,7 @@ export function registerGrievances(app: FastifyInstance, db: Db) {
   app.get('/api/grievances', async (req) => {
     const u = staffOnly(req.user!);
     const f = parse(listQ, req.query);
-    const where: string[] = ['true'];
+    const where: string[] = [`g.ulb_id = ${U()}`];
     const params: unknown[] = [];
     const add = (sql: string, v: unknown) => { params.push(v); where.push(sql.replaceAll('?', `$${params.length}`)); };
     if (f.status === 'open') where.push(`g.status IN ('new','assigned')`);
@@ -186,14 +192,14 @@ export function registerGrievances(app: FastifyInstance, db: Db) {
     if (f.q) add('(g.number ILIKE ? OR g.description ILIKE ? OR g.stretch_code ILIKE ? OR g.name ILIKE ?)', `%${f.q}%`);
     const rows = await q<Record<string, unknown>>(`SELECT ${COLS} FROM ${FROM} WHERE ${where.join(' AND ')} ORDER BY g.created_at DESC LIMIT ${f.limit}`, params);
     const counts = await q<{ status: string; n: string; overdue: string }>(
-      `SELECT status, count(*) AS n, count(*) FILTER (WHERE status IN ('new','assigned') AND due_date < $1::date) AS overdue FROM grievances GROUP BY 1`, [indiaDate()]);
+      `SELECT status, count(*) AS n, count(*) FILTER (WHERE status IN ('new','assigned') AND due_date < $1::date) AS overdue FROM grievances WHERE ulb_id = ${U()} GROUP BY 1`, [indiaDate()]);
     return { rows: rows.map((r) => shape(u, r)), counts: counts.map((c) => ({ status: c.status, n: Number(c.n), overdue: Number(c.overdue) })) };
   });
 
   const load = async (t: Q, number: string, lock = false) => {
-    if (!/^G-\d{6}$/.test(number)) throw new HttpError(404, 'Grievance not found.');
+    if (!/^([A-Z][A-Z0-9]{1,9}-)?G-\d{6}$/.test(number)) throw new HttpError(404, 'Grievance not found.');
     const r = await t<Record<string, unknown> & { id: string; ward: number; admin_zone: string; status: string; stretch_code: string | null; lon: number; lat: number; description: string; category: string }>(
-      `SELECT * FROM grievances WHERE number = $1 ${lock ? 'FOR UPDATE' : ''}`, [number]);
+      `SELECT * FROM grievances WHERE number = $1 AND ulb_id = ${U()} ${lock ? 'FOR UPDATE' : ''}`, [number]);
     if (!r.length) throw new HttpError(404, 'Grievance not found.');
     return { ...r[0], id: Number(r[0].id) };
   };
@@ -228,7 +234,7 @@ export function registerGrievances(app: FastifyInstance, db: Db) {
     const b = parse(z.object({ assignee: z.string().uuid(), due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), note: z.string().max(2000).default('') }), req.body);
     return act(req, async (t, g, u) => {
       if (['resolved', 'rejected'].includes(g.status)) throw new HttpError(400, 'This grievance is closed. Re-open it first.');
-      const a = await t<{ name: string }>(`SELECT name FROM users WHERE id = $1 AND active AND role <> 'viewer'`, [b.assignee]);
+      const a = await t<{ name: string }>(`SELECT name FROM users WHERE id = $1 AND active AND role <> 'viewer' AND ulb_id = ${U()}`, [b.assignee]);
       if (!a.length) throw new HttpError(400, 'Choose an active officer.');
       await t(`UPDATE grievances SET assignee = $2, status = 'assigned', due_date = coalesce($3::date, due_date) WHERE id = $1`, [g.id, b.assignee, b.due_date ?? null]);
       await event(t, g.id, u.id, 'assigned', `To ${a[0].name}${b.note ? `: ${b.note}` : ''}`);

@@ -5,6 +5,7 @@
  */
 import { ACTION_KEYS, defaultGrants, DUE_DAYS, GRIEVANCE_DUE_DAYS, ROLE_LABEL, type Action, type Role, type Severity } from 'shared';
 import type { Q } from './works.ts';
+import { cur } from './ulbctx.ts';
 
 interface Entry { grants: Action[]; label: string; base: Role }
 const cache = new Map<string, Entry>();
@@ -38,7 +39,7 @@ export interface UlbSettings {
 }
 const settingsCache = new Map<number, { name: string; name_local: string; code: string; settings: UlbSettings }>();
 export const invalidateSettings = () => settingsCache.clear();
-export async function ulbOf(q: Q, ulbId = 1) {
+export async function ulbOf(q: Q, ulbId = cur()) {
   const hit = settingsCache.get(ulbId);
   if (hit) return hit;
   const r = (await q<{ name: string; name_local: string; code: string; settings: Partial<UlbSettings> }>('SELECT name, name_local, code, settings FROM ulbs WHERE id = $1', [ulbId]))[0];

@@ -50,6 +50,7 @@ const STYLE_OF: Record<string, StyleKey[]> = {
 const COORDS = /^\s*(-?\d{1,3}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
 
 export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void }) {
+  useEffect(() => { if (user.ulb?.app_title) document.title = user.ulb.app_title; }, [user.ulb?.app_title]);
   const box = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
   const [meta, setMeta] = useState<Meta | null>(null);
@@ -548,7 +549,7 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
       <header className="bar">
         <div className="brand">
           <img src="/icon.svg" alt="" width={34} height={34} className="brand-logo" />
-          <span className="brand-text"><b>Warangal UGD Tracker</b><small>GWMC · Underground Drainage</small></span>
+          <span className="brand-text"><b>{user.ulb?.app_title || 'UGD Tracker'}</b><small>{user.ulb?.short_name || 'GWMC'} · Underground Drainage</small></span>
         </div>
         <nav className="main-tabs">
           {tabs.map(([t, label]) => (

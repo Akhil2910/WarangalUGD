@@ -22,6 +22,9 @@ import { nextNo } from './site.ts';
 import { nearCity, wardAt } from './geo.ts';
 import { can, card, codeOf, distanceToLine, loadStretch, midpoint, parse, refresh, sweep, type Q, type StretchRow } from './works.ts';
 import { has, ulbOf } from './perms.ts';
+import { cur, curPrefix } from './ulbctx.ts';
+/** The current ULB as a plain number (safe to put straight into SQL). */
+const U = () => Number(cur());
 
 interface IssueRow {
   id: number; code: string; kind: string; source: string; item_key: string; stretch_code: string | null; count: number;
@@ -32,7 +35,7 @@ const iso = (d: unknown) => (d ? new Date(d as string).toISOString() : null);
 const dateStr = (d: unknown) => (d ? (d instanceof Date ? indiaDate(d) : String(d).slice(0, 10)) : null);
 
 async function newCode(q: Q) {
-  return `I-${String(await nextNo(q, 'issues', '^I-(\\d+)$')).padStart(4, '0')}`;
+  return `${curPrefix()}I-${String(await nextNo(q, 'issues', '^I-(\\d+)$')).padStart(4, '0')}`;
 }
 
 async function event(q: Q, issueId: number, by: string | null, action: string, note = '', photos: string[] = [], detail: Record<string, unknown> = {}) {
@@ -45,8 +48,8 @@ async function createIssue(q: Q, st: StretchRow | null, f: { kind: string; sourc
   const [lon, lat] = f.lon !== undefined && f.lat !== undefined ? [f.lon, f.lat] : midpoint(st!.geom);
   const due = addDays(indiaDate(), (await ulbOf(q)).settings.issue_due_days[f.severity] ?? DUE_DAYS[f.severity]);
   const rows = await q<{ id: string }>(
-    `INSERT INTO issues (code, kind, source, item_key, stretch_code, lon, lat, ward, admin_zone, package, count, severity, title, remark, photos, due_date, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`,
+    `INSERT INTO issues (code, kind, source, item_key, stretch_code, lon, lat, ward, admin_zone, package, count, severity, title, remark, photos, due_date, created_by, ulb_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,${U()}) RETURNING id`,
     [await newCode(q), f.kind, f.source, f.item_key ?? '', st?.code ?? null, lon, lat, st?.ward ?? f.ward, st?.admin_zone ?? f.admin_zone ?? '', st?.package ?? '', f.count, f.severity, f.title,
       f.remark ?? '', JSON.stringify(f.photos ?? []), due, f.source === 'manual' ? f.by : null],
   );
@@ -170,7 +173,7 @@ export function registerIssues(app: FastifyInstance, db: Db) {
     await sweep(db);
     const f = parse(listQuery, req.query);
     const u = req.user!;
-    const where: string[] = ['NOT coalesce(hs.hidden, false)'];
+    const where: string[] = ['NOT coalesce(hs.hidden, false)', `i.ulb_id = ${U()}`];
     const params: unknown[] = [];
     const add = (sql: string, v: unknown) => {
       params.push(v);
@@ -203,7 +206,7 @@ export function registerIssues(app: FastifyInstance, db: Db) {
       return '﻿' + [head.join(','), ...lines].join('\r\n'); // BOM so Excel reads the text correctly
     }
     const counts = await q<{ status: string; severity: string; n: string; overdue: string }>(
-      `SELECT status, severity, count(*) AS n, count(*) FILTER (WHERE status <> 'resolved' AND due_date < $1::date) AS overdue FROM issues WHERE stretch_code IS NULL OR stretch_code IN (SELECT code FROM stretches WHERE NOT hidden) GROUP BY 1, 2`, [indiaDate()]);
+      `SELECT status, severity, count(*) AS n, count(*) FILTER (WHERE status <> 'resolved' AND due_date < $1::date) AS overdue FROM issues WHERE ulb_id = ${U()} AND (stretch_code IS NULL OR stretch_code IN (SELECT code FROM stretches WHERE NOT hidden)) GROUP BY 1, 2`, [indiaDate()]);
     return {
       total: rows.length ? Number(rows[0].total) : 0,
       rows: rows.map(({ total: _t, ...r }) => r),
@@ -213,13 +216,13 @@ export function registerIssues(app: FastifyInstance, db: Db) {
 
   app.get('/api/users/assignable', async () => {
     const rows = await q<{ id: string; name: string; role: string; designation: string }>(
-      `SELECT id, name, role, designation FROM users WHERE active AND role <> 'viewer' ORDER BY name`);
+      `SELECT id, name, role, designation FROM users WHERE active AND role <> 'viewer' AND ulb_id = ${U()} ORDER BY name`);
     return { users: rows };
   });
 
   async function loadIssue(t: Q, code: string, lock = false) {
-    if (!/^I-\d{4,7}$/.test(code)) throw new HttpError(404, 'Issue not found.');
-    const rows = await t<IssueRow & { ward: number; admin_zone: string }>(`SELECT * FROM issues WHERE code = $1 AND (stretch_code IS NULL OR stretch_code IN (SELECT code FROM stretches WHERE NOT hidden)) ${lock ? 'FOR UPDATE' : ''}`, [code]);
+    if (!/^([A-Z][A-Z0-9]{1,9}-)?I-\d{4,7}$/.test(code)) throw new HttpError(404, 'Issue not found.');
+    const rows = await t<IssueRow & { ward: number; admin_zone: string }>(`SELECT * FROM issues WHERE code = $1 AND ulb_id = ${U()} AND (stretch_code IS NULL OR stretch_code IN (SELECT code FROM stretches WHERE NOT hidden)) ${lock ? 'FOR UPDATE' : ''}`, [code]);
     if (!rows.length) throw new HttpError(404, 'Issue not found.');
     return rows[0];
   }
@@ -262,7 +265,7 @@ export function registerIssues(app: FastifyInstance, db: Db) {
       if (i.status === 'resolved') throw new HttpError(400, 'This issue is resolved. Re-open it first.');
       let name = '';
       if (b.assignee) {
-        const a = await t<{ name: string; role: string }>('SELECT name, role FROM users WHERE id = $1 AND active', [b.assignee]);
+        const a = await t<{ name: string; role: string }>(`SELECT name, role FROM users WHERE id = $1 AND active AND ulb_id = ${U()}`, [b.assignee]);
         if (!a.length || a[0].role === 'viewer') throw new HttpError(400, 'Choose an active officer or field staff member.');
         name = a[0].name;
       }

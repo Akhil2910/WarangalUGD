@@ -67,19 +67,21 @@ export async function loadStretches(db: Db, log: (m: string) => void, file = pat
   log(`road stretches loaded: ${added} new of ${seed.stretches.length}`);
 }
 
-export async function loadComplianceItems(db: Db, log: (m: string) => void, file = path.join(APP_ROOT, 'server', 'seed', 'compliance_items.json')) {
-  if ((await db.query('SELECT 1 FROM compliance_items LIMIT 1')).length) return;
+export const COMPLIANCE_SEED = path.join(APP_ROOT, 'server', 'seed', 'compliance_items.json');
+/** The standard work-stretch compliance list for a ULB (once). GWMC keeps the plain keys; another ULB's start with its code ("KMC:..."). */
+export async function loadComplianceItems(db: Pick<Db, 'query'>, log: (m: string) => void, file = COMPLIANCE_SEED, ulb = 1, keyPrefix = '') {
+  if ((await db.query('SELECT 1 FROM compliance_items WHERE ulb_id = $1 LIMIT 1', [ulb])).length) return;
   const seed = JSON.parse(readFileSync(file, 'utf8')) as { items: Record<string, unknown>[] };
   for (const it of seed.items) {
     await db.query(
       `INSERT INTO compliance_items (key, version, sort, name, description, category, due_at, applies, per, evidence, value_label,
-                                     unit, pass_rule, recurring_days, mandatory, severity, gate, grace_days)
-       VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                                     unit, pass_rule, recurring_days, mandatory, severity, gate, grace_days, ulb_id)
+       VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
        ON CONFLICT (key, version) DO NOTHING`,
-      [it.key, it.sort, it.name, it.description, it.category, it.due_at, JSON.stringify(it.applies), it.per, JSON.stringify(it.evidence),
-        it.value_label, it.unit, it.pass_rule ? JSON.stringify(it.pass_rule) : null, it.recurring_days, it.mandatory, it.severity, it.gate, it.grace_days],
+      [keyPrefix + it.key, it.sort, it.name, it.description, it.category, it.due_at, JSON.stringify(it.applies), it.per, JSON.stringify(it.evidence),
+        it.value_label, it.unit, it.pass_rule ? JSON.stringify(it.pass_rule) : null, it.recurring_days, it.mandatory, it.severity, it.gate, it.grace_days, ulb],
     );
   }
-  await db.query('INSERT INTO seed_loads (name, detail) VALUES ($1, $2) ON CONFLICT DO NOTHING', ['compliance_items:v1', JSON.stringify({ items: seed.items.length })]);
+  if (ulb === 1) await db.query('INSERT INTO seed_loads (name, detail) VALUES ($1, $2) ON CONFLICT DO NOTHING', ['compliance_items:v1', JSON.stringify({ items: seed.items.length })]);
   log(`compliance list loaded: ${seed.items.length} items`);
 }

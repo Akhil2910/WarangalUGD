@@ -14,6 +14,9 @@ import { STATE_DIR } from './config.ts';
 import { HttpError } from './auth.ts';
 import type { Db } from './db.ts';
 import { has } from './perms.ts';
+import { cur, curPrefix } from './ulbctx.ts';
+/** The current ULB as a plain number (safe to put straight into SQL). */
+const U = () => Number(cur());
 
 export const FILES_DIR = path.join(STATE_DIR, 'files');
 const LIMIT = { photo: 3 * 1024 * 1024, document: 10 * 1024 * 1024 };
@@ -51,7 +54,7 @@ export function registerFiles(app: FastifyInstance, db: Db) {
   app.get<{ Params: { id: string } }>('/api/files/:id', async (req, reply) => {
     const id = req.params.id;
     if (!/^[0-9a-f-]{36}$/.test(id)) throw new HttpError(404, 'Not found.');
-    const rows = await db.query<{ mime: string; name: string }>('SELECT mime, name FROM files WHERE id = $1', [id]);
+    const rows = await db.query<{ mime: string; name: string }>(`SELECT mime, name FROM files WHERE id = $1 AND ulb_id = ${U()}`, [id]);
     if (!rows.length || !existsSync(path.join(FILES_DIR, id))) throw new HttpError(404, 'Not found.');
     reply.header('Cache-Control', 'private, max-age=86400');
     reply.header('Content-Disposition', `inline; filename="${rows[0].name.replace(/[^\w.\- ]/g, '_') || id}"`);
@@ -71,7 +74,7 @@ export async function storeFile(db: Db, f: { kind: 'photo' | 'document'; name: s
   if (!sig.every((b, i) => bytes[i] === b)) throw new HttpError(400, 'The file content does not match its type.');
   const sha = createHash('sha256').update(bytes).digest('hex');
   const rows = await db.query<{ id: string }>(
-    `INSERT INTO files (kind, mime, name, size, sha256, gps, taken_at, uploaded_by, public_upload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+    `INSERT INTO files (kind, mime, name, size, sha256, gps, taken_at, uploaded_by, public_upload, ulb_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,${U()}) RETURNING id`,
     [f.kind, f.mime, f.name, bytes.length, sha, f.gps ? JSON.stringify(f.gps) : null, f.taken_at ?? null, by, publicUpload],
   );
   writeFileSync(path.join(FILES_DIR, rows[0].id), bytes);
@@ -81,6 +84,6 @@ export async function storeFile(db: Db, f: { kind: 'photo' | 'document'; name: s
 /** Check that every file id exists and is of the expected kind. */
 export async function checkFiles(db: Db, ids: string[], kind: 'photo' | 'document') {
   if (!ids.length) return;
-  const rows = await db.query<{ id: string }>('SELECT id FROM files WHERE id = ANY($1::uuid[]) AND kind = $2', [ids, kind]);
+  const rows = await db.query<{ id: string }>(`SELECT id FROM files WHERE id = ANY($1::uuid[]) AND kind = $2 AND ulb_id = ${U()}`, [ids, kind]);
   if (rows.length !== new Set(ids).size) throw new HttpError(400, `A ${kind} attached to this record was not found. Add it again.`);
 }

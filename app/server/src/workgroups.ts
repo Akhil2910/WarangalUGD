@@ -20,13 +20,16 @@ import {
   type Q, type StretchRow,
 } from './works.ts';
 import { has } from './perms.ts';
+import { cur, curPrefix } from './ulbctx.ts';
+/** The current ULB as a plain number (safe to put straight into SQL). */
+const U = () => Number(cur());
 
-const GCODE = /^WS-\d{4,6}$/;
+const GCODE = /^([A-Z][A-Z0-9]{1,9}-)?WS-\d{4,6}$/;
 const groupCode = (c: string) => {
   if (!GCODE.test(c)) throw new HttpError(404, 'Work stretch not found.');
   return c;
 };
-const roadList = z.array(z.string().regex(/^W\d{1,3}-S?\d{3,5}$/, 'Unknown road code.')).min(1, 'Select at least one road.').max(300, 'At most 300 roads in one work stretch.');
+const roadList = z.array(z.string().regex(/^([A-Z][A-Z0-9]{1,9}-)?W\d{1,3}-S?\d{3,5}$/, 'Unknown road code.')).min(1, 'Select at least one road.').max(300, 'At most 300 roads in one work stretch.');
 
 interface Member {
   code: string; ward: number; admin_zone: string; road_name: string; length_m: number; planned_manholes: number; status: WorkStatus;
@@ -67,7 +70,7 @@ function rollup(ms: Member[]) {
 const MEMBER_COLS = `code, ward, admin_zone, road_name, length_m, planned_manholes, status, stage, approval, compliance, open_issues, badges, version, work_group, updated_at`;
 
 async function members(q: Q, codes: string[]): Promise<Member[]> {
-  const rows = await q<Member>(`SELECT ${MEMBER_COLS} FROM stretches WHERE code = ANY($1::text[]) AND deleted_at IS NULL AND NOT hidden ORDER BY ward, code`, [codes]);
+  const rows = await q<Member>(`SELECT ${MEMBER_COLS} FROM stretches WHERE code = ANY($1::text[]) AND ulb_id = ${U()} AND deleted_at IS NULL AND NOT hidden ORDER BY ward, code`, [codes]);
   const missing = codes.filter((c) => !rows.some((r) => r.code === c));
   if (missing.length) throw new HttpError(400, `Road(s) not found: ${missing.slice(0, 10).join(', ')}.`);
   return rows;
@@ -76,7 +79,7 @@ async function groupMembers(q: Q, code: string): Promise<Member[]> {
   return q<Member>(`SELECT ${MEMBER_COLS} FROM stretches WHERE work_group = $1 AND deleted_at IS NULL AND NOT hidden ORDER BY ward, code`, [code]);
 }
 async function loadGroup(q: Q, code: string, lock = false) {
-  const rows = await q<Record<string, unknown> & { code: string; name: string }>(`SELECT * FROM work_groups WHERE code = $1 AND NOT hidden ${lock ? 'FOR UPDATE' : ''}`, [groupCode(code)]);
+  const rows = await q<Record<string, unknown> & { code: string; name: string }>(`SELECT * FROM work_groups WHERE code = $1 AND ulb_id = ${U()} AND NOT hidden ${lock ? 'FOR UPDATE' : ''}`, [groupCode(code)]);
   if (!rows.length) throw new HttpError(404, 'Work stretch not found.');
   return rows[0];
 }
@@ -135,7 +138,7 @@ export function registerWorkGroups(app: FastifyInstance, db: Db) {
   app.get('/api/work-groups/map', async () => {
     const rows = await q<{ code: string; name: string; roads: string[] }>(
       `SELECT g.code, g.name, array_agg(s.code ORDER BY s.code) AS roads FROM work_groups g JOIN stretches s ON s.work_group = g.code
-       WHERE s.deleted_at IS NULL AND NOT s.hidden AND NOT g.hidden GROUP BY g.code, g.name`);
+       WHERE g.ulb_id = ${U()} AND s.deleted_at IS NULL AND NOT s.hidden AND NOT g.hidden GROUP BY g.code, g.name`);
     const out = [];
     for (const g of rows) {
       const mid = g.roads[Math.floor(g.roads.length / 2)];
@@ -153,7 +156,7 @@ export function registerWorkGroups(app: FastifyInstance, db: Db) {
     await sweep(db);
     const f = parse(listQuery, req.query);
     const gs = await q<Record<string, unknown> & { code: string }>(
-      `SELECT g.*, u.name AS created_by_name FROM work_groups g LEFT JOIN users u ON u.id = g.created_by WHERE NOT g.hidden ORDER BY g.created_at DESC`);
+      `SELECT g.*, u.name AS created_by_name FROM work_groups g LEFT JOIN users u ON u.id = g.created_by WHERE NOT g.hidden AND g.ulb_id = ${U()} ORDER BY g.created_at DESC`);
     const out = [];
     for (const g of gs) {
       const ms = await groupMembers(q, g.code);
@@ -192,8 +195,8 @@ export function registerWorkGroups(app: FastifyInstance, db: Db) {
       if (!canManage(u, ms)) throw new HttpError(403, 'Only an AEE, DEE or the Commissioner of the area can create work stretches.');
       const taken = ms.filter((m) => m.work_group);
       if (taken.length) throw new HttpError(400, `Already in another work stretch: ${taken.slice(0, 10).map((m) => `${m.code} (${m.work_group})`).join(', ')}. Remove them there first.`);
-      const code = `WS-${String(await nextNo(t, 'work_groups', '^WS-(\\d+)$')).padStart(4, '0')}`;
-      await t(`INSERT INTO work_groups (code, name, package, contractor, start_date, note, created_by, updated_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)`,
+      const code = `${curPrefix()}WS-${String(await nextNo(t, 'work_groups', '^WS-(\\d+)$')).padStart(4, '0')}`;
+      await t(`INSERT INTO work_groups (code, name, package, contractor, start_date, note, created_by, updated_by, ulb_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$7,${U()})`,
         [code, b.name, b.package, b.contractor, b.start_date ?? null, b.note, u.id]);
       await t('UPDATE stretches SET work_group = $2 WHERE code = ANY($1::text[])', [ms.map((m) => m.code), code]);
       await event(t, code, u.id, 'created', b.note, { name: b.name, roads: ms.map((m) => m.code) });
