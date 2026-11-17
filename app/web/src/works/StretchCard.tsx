@@ -12,6 +12,8 @@ import { fmtDate, fmtTime, GpsBadge, uploadFile, useGps, type Uploaded } from '.
 import { IssueDetail, type IssueRow } from './IssuesPage.tsx';
 import { ReportIssueModal } from './ReportIssue.tsx';
 import { QrBoard } from './QrBoard.tsx';
+import { DetailsPanel, Figures, MoreMenu, NameEdit, nextStep, PhotosModal, QuickUpdate, StageTrack } from './CardParts.tsx';
+import { Icon } from '../ui.tsx';
 import { ISSUE_STATUS, PHASES, ROLE_LABEL, SEVERITY_COLOR, STAGE_PHASE } from 'shared';
 
 interface Unit { unit: { id: string; label: string; design_invert?: number | null }; state: UnitState; state_label: string; due_since: string | null; overdue_since: string | null }
@@ -52,13 +54,17 @@ export function StretchCard({ code, me, onClose, onChanged, onLocate, onEditSite
 }) {
   const wrap = (inner: React.ReactNode) => <div className="modal" role="dialog" aria-modal="true"><aside className="drawer card-modal">{inner}</aside></div>;
   const [card, setCard] = useState<Card | null>(null);
-  const [tab, setTab] = useState<'status' | 'compliance' | 'issues' | 'history'>('status');
+  const [tab, setTab] = useState<'overview' | 'update' | 'full' | 'compliance' | 'issues' | 'history'>('overview');
+  const [focus, setFocus] = useState('');
   const [qr, setQr] = useState(false);
+  const [photos, setPhotos] = useState(false);
+  const [details, setDetails] = useState(false);
   const [error, setError] = useState('');
   const load = () => api<Card>(`/api/stretches/${code}`).then(setCard).catch((e) => setError((e as Error).message));
   useEffect(() => {
     setCard(null);
     setError('');
+    setTab('overview');
     load();
   }, [code]);
   const updated = (c: Card) => {
@@ -70,48 +76,74 @@ export function StretchCard({ code, me, onClose, onChanged, onLocate, onEditSite
   const s = card.stretch;
   const st = stageOf(s.stage);
   const th = themeOf(card.compliance.summary.theme);
-  const canDraw = ['aee', 'dee', 'commissioner'].includes(me.role) && card.can.update;
+  const canDraw = ['aee', 'dee', 'commissioner', 'piu_officer'].includes(me.role) && card.can.update;
+  const ns = nextStep(card, me);
+  const openIssues = card.issues.filter((i) => i.status !== 'resolved').length;
+  const bad = card.compliance.summary.overdue + card.compliance.summary.not_complied;
+  const tabs: [typeof tab, string][] = [
+    ['overview', 'Overview'],
+    ...(card.can.update ? [['update', 'Update'] as [typeof tab, string]] : []),
+    ['compliance', `Compliance${bad ? ` (${bad}!)` : ''}`],
+    ['issues', `Issues${openIssues ? ` (${openIssues})` : ''}`],
+    ['history', 'History'],
+  ];
+  const go = (t: typeof tab, f = '') => { setFocus(f); setTab(t); };
   return wrap(
     <>
-      <Head code={code} onClose={onClose} name={s.road_name} />
-      <div className="pad card-top">
-        <div className="pills">
+      <header className="whead">
+        <div className="whead-main">
+          <span className="wcode">{s.code}</span>
+          <NameEdit card={card} canEdit={canDraw && s.source === 'site'} onSaved={() => { load(); onChanged(); }} />
+        </div>
+        <div className="whead-side">
           <span className="pill" style={{ background: st.color }}>{st.label}</span>
-          <span className="pill" style={{ background: th.color }}>Compliance: {th.label}{card.compliance.summary.score !== null ? ` · ${card.compliance.summary.score}%` : ''}</span>
-          {card.badges && <span className="pill badge">{card.badges.split('').join(' ')}</span>}
+          <span className="pill" style={{ background: th.color }} title={th.label}>Compliance{card.compliance.summary.score !== null ? ` ${card.compliance.summary.score}%` : ''}</span>
+          <MoreMenu items={[
+            { label: 'Show on map', icon: 'pin', onClick: () => onLocate(card) },
+            { label: 'QR board for citizens', icon: 'qr', onClick: () => setQr(true) },
+            { label: 'Photos', icon: 'photo', onClick: () => setPhotos(true) },
+            { label: 'Details', icon: 'info', onClick: () => { setTab('overview'); setDetails(true); } },
+            ...(s.source === 'site' && onEditSitePipes && card.can.update ? [{ label: 'Change pipes on the map', icon: 'network', onClick: () => onEditSitePipes(card) }] : []),
+            ...(card.can.update ? [{ label: 'Edit full status', icon: 'works', onClick: () => setTab('full') }] : []),
+          ]} />
+          <button className="icon-btn" aria-label="Close" onClick={onClose}><Icon name="close" /></button>
         </div>
-        <div className="muted small">
-          Ward {s.ward} · {s.admin_zone}{s.catchment ? ` · ${s.catchment}` : ''} · {Math.round(s.length_m)} m · {s.pipes_count} reaches · {s.planned_manholes} manholes planned · up to {s.max_dia_mm} mm
-          {s.max_depth_m ? `, ${s.max_depth_m} m deep` : ''}{s.road_name ? ` · ${s.road_name}` : ''}
-        </div>
-        <Ends card={card} canEdit={canDraw} onSaved={() => { load(); onChanged(); }} />
-        <div className="row-btns">
-          <button onClick={() => onLocate(card)}>📍 Show on map</button>
-          <button onClick={() => setQr(true)}>▦ QR board for citizens</button>
-          {s.source === 'site' && onEditSitePipes && card.can.update && <button onClick={() => onEditSitePipes(card)}>Change pipes on the map</button>}
-        </div>
-        {card.tags.length > 0 && <div className="tags">{card.tags.map((t) => <span key={t} className={`tag ${/^(Overdue|Not complied)/.test(t) ? 'bad' : ''}`}>{t}</span>)}</div>}
-        <div className="muted small">Last update: {s.updated_by_name ? `${fmtTime(s.updated_at)} by ${s.updated_by_name}` : 'none yet'} · version {s.version}</div>
-      </div>
-      {(card.project_blocks?.length ?? 0) > 0 && (
-        <div className="project-block">🔒 Work cannot start on this road until the project's pre-work items are verified: {card.project_blocks!.map((m) => m.replace(/^Project: /, '')).join(' ')} <span className="muted">(Compliance → Project)</span></div>
-      )}
-      <nav className="tabs">
-        {(['status', 'compliance', 'issues', 'history'] as const).map((t) => {
-          const openIssues = card.issues.filter((i) => i.status !== 'resolved').length;
-          const label = t === 'status' ? 'Status'
-            : t === 'compliance' ? `Compliance${card.compliance.summary.overdue + card.compliance.summary.not_complied ? ` (${card.compliance.summary.overdue + card.compliance.summary.not_complied}!)` : ''}`
-            : t === 'issues' ? `Issues${openIssues ? ` (${openIssues})` : ''}` : 'History';
-          return <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{label}</button>;
-        })}
+      </header>
+      <div className="wtrack-wrap"><StageTrack s={s} /></div>
+      <nav className="tabs wtabs">
+        {tabs.map(([t, l]) => <button key={t} className={tab === t || (t === 'update' && tab === 'full') ? 'on' : ''} onClick={() => go(t)}>{l}</button>)}
       </nav>
       <div className="pad scroll" key={tab}>
-        {tab === 'status' && <StatusTab card={card} onSaved={updated} />}
-        {tab === 'compliance' && <ComplianceTab card={card} me={me} onSaved={updated} />}
+        {tab === 'overview' && (
+          <div className="wover">
+            <div className={`wnext ${ns.tone}`}>
+              <span className="wnext-ico"><Icon name={ns.tone === 'ok' ? 'check' : ns.tone === 'wait' ? 'compliance' : 'issues'} /></span>
+              <span className="wnext-text"><span className="muted small">Next step</span><b>{ns.title}</b><small>{ns.detail}</small></span>
+              {ns.action && ns.go && <button className="btn primary" onClick={() => (ns.focus === 'approval' ? document.querySelector('.approval')?.scrollIntoView({ behavior: 'smooth' }) : go(ns.go!, ns.focus))}>{ns.action}</button>}
+            </div>
+            {s.approval !== 'none' && <ApprovalBox card={card} onSaved={updated} />}
+            <Figures card={card} />
+            <div className="wchips">
+              <button onClick={() => onLocate(card)}><Icon name="pin" /> Show on map</button>
+              <button onClick={() => setQr(true)}><Icon name="qr" /> QR board</button>
+              <button onClick={() => setPhotos(true)}><Icon name="photo" /> Photos</button>
+              <button className={details ? 'on' : ''} onClick={() => setDetails(!details)}><Icon name="info" /> {details ? 'Hide details' : 'Details'}</button>
+            </div>
+            {details && <DetailsPanel card={card} ends={<Ends card={card} canEdit={canDraw} onSaved={() => { load(); onChanged(); }} />} />}
+            {!card.can.update && (
+              <details className="wreadonly"><summary>Full status (read only)</summary><StatusTab card={card} onSaved={updated} /></details>
+            )}
+            <div className="muted small">Last update: {s.updated_by_name ? `${fmtTime(s.updated_at)} by ${s.updated_by_name}` : 'none yet'}</div>
+          </div>
+        )}
+        {tab === 'update' && <QuickUpdate card={card} onSaved={updated} onFull={() => setTab('full')} />}
+        {tab === 'full' && <><button className="link" onClick={() => setTab('update')}>‹ Back to quick update</button><StatusTab card={card} onSaved={updated} /></>}
+        {tab === 'compliance' && <ComplianceTab card={card} me={me} onSaved={updated} focus={focus} />}
         {tab === 'issues' && <IssuesTab card={card} reload={() => { load(); onChanged(); }} />}
         {tab === 'history' && <HistoryTab code={code} version={s.version} />}
       </div>
       {qr && <QrBoard card={card} onClose={() => setQr(false)} />}
+      {photos && <PhotosModal card={card} onClose={() => setPhotos(false)} />}
     </>,
   );
 }
@@ -370,8 +402,9 @@ export function PhotoPicker({ label, kind, files, setFiles, gps }: {
 }
 
 // ---------------- Compliance ----------------
-function ComplianceTab({ card, me, onSaved }: { card: Card; me: { id: string; role: string }; onSaved: (c: Card) => void }) {
-  const [open, setOpen] = useState<string | null>(null);
+function ComplianceTab({ card, me, onSaved, focus }: { card: Card; me: { id: string; role: string }; onSaved: (c: Card) => void; focus?: string }) {
+  const [open, setOpen] = useState<string | null>(focus || null);
+  useEffect(() => { if (focus) setTimeout(() => document.querySelector(`[data-item="${focus}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50); }, [focus]);
   const [recording, setRecording] = useState<string | null>(null);
   const sum = card.compliance.summary;
   const recs = card.compliance.records;
@@ -403,7 +436,7 @@ function ComplianceTab({ card, me, onSaved }: { card: Card; me: { id: string; ro
               const k = iv.item.key;
               const itemRecs = recs.filter((r) => r.item_key === k);
               return (
-                <div key={k} className="citem">
+                <div key={k} className="citem" data-item={k}>
                   <button className="citem-head" onClick={() => setOpen(open === k ? null : k)}>
                     <span className="dot" style={{ background: UNIT_STATE_COLOR[iv.state] }} />
                     <span className="grow">{iv.item.name}{!iv.item.mandatory && <span className="muted small"> (optional)</span>}</span>

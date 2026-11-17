@@ -16,7 +16,8 @@
     "test:citizens": "tsx src/test/citizens.test.ts",
     "test:works": "tsx src/test/phase2.test.ts",
     "set-password": "tsx src/scripts/set-password.ts",
-    "test:project": "tsx src/test/project.test.ts"
+    "test:project": "tsx src/test/project.test.ts",
+    "scrub-text": "tsx src/scripts/scrub-text.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.5.16",

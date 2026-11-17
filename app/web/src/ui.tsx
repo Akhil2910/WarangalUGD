@@ -57,6 +57,13 @@ const ICONS: Record<string, string> = {
   palette: 'M12 3a9 9 0 1 0 0 18c1.1 0 1.5-.8 1.2-1.6-.4-.9.2-1.9 1.2-1.9H17a4 4 0 0 0 4-4c0-5-4-10.5-9-10.5zM7.5 11a1 1 0 1 0 0 .1M10 7a1 1 0 1 0 0 .1M15 7.5a1 1 0 1 0 0 .1',
   legend: 'M4 6h3M4 12h3M4 18h3M10 6h10M10 12h10M10 18h10',
   chevron: 'M9 6l6 6-6 6',
+  pencil: 'M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4',
+  dots: 'M5 12h.1M12 12h.1M19 12h.1',
+  camera: 'M4 8h3l2-3h6l2 3h3v11H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+  photo: 'M4 5h16v14H4zM4 15l4-4 4 4 3-3 5 5M15 9h.1',
+  qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2M14 18h2v2M18 18h2v2',
+  info: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 11v5M12 8h.1',
+  check: 'M5 12l5 5 9-10',
 };
 export function Icon({ name, size }: { name: keyof typeof ICONS | string; size?: number }) {
   return (

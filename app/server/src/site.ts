@@ -396,6 +396,25 @@ export function registerSite(app: FastifyInstance, db: Db) {
     return { ok: true };
   });
 
+  // ---- rename a work stretch (kept in its history) ----
+  app.post<{ Params: { code: string } }>('/api/site/stretches/:code/name', async (req) => {
+    const u = req.user!;
+    const code = codeOf(req.params);
+    const b = parse(z.object({ name: z.string().trim().min(3, 'Give a name of at least 3 letters.').max(200) }), req.body);
+    await db.tx(async (t) => {
+      const st = (await t<{ ward: number; admin_zone: string; version: number; road_name: string; status: unknown; approval: string; stage: string }>(
+        `SELECT * FROM stretches WHERE code = $1 AND source = 'site' AND deleted_at IS NULL AND NOT hidden FOR UPDATE`, [code]))[0];
+      if (!st) throw new HttpError(404, 'Work stretch not found.');
+      if (!canDraw(u, st)) throw new HttpError(403, DRAW_ROLES);
+      if (st.road_name === b.name) return;
+      const version = st.version + 1;
+      await t('UPDATE stretches SET road_name = $2, version = $3, updated_at = now(), updated_by = $4 WHERE code = $1', [code, b.name, version, u.id]);
+      await t(`INSERT INTO stretch_history (stretch_code, version, kind, by_user, changes, snapshot, note) VALUES ($1, $2, 'network', $3, $4, $5, '')`,
+        [code, version, u.id, JSON.stringify([{ field: 'name', label: 'Name', from: st.road_name, to: b.name }]), JSON.stringify({ status: st.status, approval: st.approval, stage: st.stage })]);
+    });
+    return { ok: true };
+  });
+
   // ---- search over the database (work stretches, drawn manholes) ----
   app.get<{ Querystring: { q?: string } }>('/api/search/db', async (req) => {
     const s = (req.query.q ?? '').trim();
