@@ -4,6 +4,7 @@ import { EXISTING_DRAINS, UTILITY_CONDITIONS, UTILITY_LAYERS } from 'shared';
 import { api } from '../api.ts';
 import { Modal } from './Modal.tsx';
 import { utilIconUrl } from '../utilIcons.ts';
+import { RankBars } from '../charts.tsx';
 
 interface L { key: string; label: string; group: string; geom: string; color: string; count: number; imported: number }
 
@@ -37,6 +38,12 @@ export function UtilitiesPage({ canImport, canMark, onMark, refreshKey }: { canI
       </div>
       <p className="muted">Utilities show on the map (Layers → Utilities). Mark them on the satellite image, or import the files the departments give (GeoJSON).
         Tap any utility on the map to see its details.</p>
+      {layers.some((l) => l.count) && (
+        <section className="dsec">
+          <div className="dsec-head"><h3>How many of each</h3><span className="muted small">{layers.reduce((a, l) => a + l.count, 0).toLocaleString('en-IN')} utilities on the map</span></div>
+          <RankBars rows={layers.filter((l) => l.count).sort((a, b) => b.count - a.count).map((l) => ({ label: l.label, value: l.count, color: l.color, sub: l.group === 'above' ? 'above ground' : 'underground' }))} />
+        </section>
+      )}
       {group('above', 'Above ground')}
       {group('under', 'Underground')}
       <section className="dsec">

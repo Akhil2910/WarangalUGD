@@ -5,7 +5,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { GRIEVANCE_CATEGORIES, indiaDate, ISSUE_KINDS, STAGES, type WorkStatus } from 'shared';
+import { GRIEVANCE_CATEGORIES, GRIEVANCE_STATUS, indiaDate, ISSUE_KINDS, ISSUE_STATUS, SEVERITY_COLOR, STAGES, type WorkStatus } from 'shared';
 import type { Db } from './db.ts';
 import { projectState } from './project.ts';
 import { dprPipe, planTotals } from './dpr.ts';
@@ -82,11 +82,14 @@ export function registerDashboard(app: FastifyInstance, db: Db) {
           open: is.filter(isOpenI).length, high: is.filter((i) => isOpenI(i) && i.severity === 'high').length, overdue: is.filter((i) => isOpenI(i) && overdue(i)).length,
           resolved: resolvedI.length, avg_days_to_resolve: resolvedI.length ? r1(resolvedI.reduce((a, i) => a + days(i.created_at, i.resolved_at), 0) / resolvedI.length) : null,
           by_kind: ISSUE_KINDS.map((k) => ({ kind: k.key, label: k.label, open: is.filter((i) => i.kind === k.key && isOpenI(i)).length, total: is.filter((i) => i.kind === k.key).length })).filter((k) => k.total),
+          by_severity: (['high', 'medium', 'low'] as const).map((sv) => ({ key: sv, label: sv[0].toUpperCase() + sv.slice(1), color: SEVERITY_COLOR[sv], open: is.filter((i) => i.severity === sv && isOpenI(i)).length, total: is.filter((i) => i.severity === sv).length })),
+          by_status: ISSUE_STATUS.map((st) => ({ key: st.key, label: st.label, color: st.color, n: is.filter((i) => i.status === st.key).length })),
         },
         grievances: {
           total: gs.length, open: gs.filter(isOpenG).length, overdue: gs.filter((g) => isOpenG(g) && overdue(g)).length, resolved: gs.filter((g) => g.status === 'resolved').length,
           on_time_pct: resolvedG.length ? Math.round((resolvedG.filter((g) => String(iso(g.resolved_at)).slice(0, 10) <= String(iso(g.due_date)).slice(0, 10)).length / resolvedG.length) * 100) : null,
           by_category: GRIEVANCE_CATEGORIES.map((c) => ({ category: c.key, label: c.en, open: gs.filter((g) => g.category === c.key && isOpenG(g)).length, total: gs.filter((g) => g.category === c.key).length })).filter((c) => c.total),
+          by_status: GRIEVANCE_STATUS.map((st) => ({ key: st.key, label: st.en, color: st.color, n: gs.filter((g) => g.status === st.key).length })),
         },
       };
     };

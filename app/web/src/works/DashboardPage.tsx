@@ -7,14 +7,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { COMPLIANCE_STAGES, STAGES } from 'shared';
 import { api } from '../api.ts';
 import { fmtTime } from './util.tsx';
-import { ACCENT, heat, KpiCard, Meter, RankBars, Ring, Sparkline, StackBar, STATUS, StatusIcon, TrendChart } from '../charts.tsx';
+import { ACCENT, heat, KpiCard, Meter, RankBars, Ring, Sparkline, StackBar, StackRows, STATUS, StatusIcon, TrendChart } from '../charts.tsx';
+import { Icon } from '../ui.tsx';
 
 interface Fig {
   works: { count: number; km: number; pipe_laid_m: number; restored_m: number; approved_m: number; manholes_planned: number; manholes_built: number; laid_pct_of_works: number;
     by_stage: { stage: string; label: string; color: string; n: number; m: number }[]; waiting_approval: number };
   compliance: { due: number; verified: number; to_verify: number; overdue: number; not_complied: number; score: number | null };
-  issues: { open: number; high: number; overdue: number; resolved: number; avg_days_to_resolve: number | null; by_kind: { kind: string; label: string; open: number; total: number }[] };
-  grievances: { total: number; open: number; overdue: number; resolved: number; on_time_pct: number | null; by_category: { category: string; label: string; open: number; total: number }[] };
+  issues: { open: number; high: number; overdue: number; resolved: number; avg_days_to_resolve: number | null; by_kind: { kind: string; label: string; open: number; total: number }[];
+    by_severity: { key: string; label: string; color: string; open: number; total: number }[]; by_status: { key: string; label: string; color: string; n: number }[] };
+  grievances: { total: number; open: number; overdue: number; resolved: number; on_time_pct: number | null; by_category: { category: string; label: string; open: number; total: number }[]; by_status: { key: string; label: string; color: string; n: number }[] };
 }
 interface Area extends Fig { key: string; plan: { km: number; manholes: number }; laid_pct_of_plan: number }
 interface Dash {
@@ -31,7 +33,7 @@ interface Dash {
   };
 }
 type View = 'overall' | 'areas' | 'progress' | 'compliance' | 'issues' | 'grievances' | 'activity';
-const VIEWS: [View, string][] = [['overall', 'Overall'], ['areas', 'By area'], ['progress', 'Work progress'], ['compliance', 'Compliance'], ['issues', 'Issues'], ['grievances', 'Grievances'], ['activity', 'Field activity']];
+const VIEWS: [View, string, string][] = [['overall', 'Overall', 'dashboard'], ['areas', 'By area', 'boundary'], ['progress', 'Work progress', 'works'], ['compliance', 'Compliance', 'compliance'], ['issues', 'Issues', 'issues'], ['grievances', 'Grievances', 'grievances'], ['activity', 'Field activity', 'network']];
 const LEVEL_LABEL = { zone: 'GWMC zone', ward: 'Ward', sewer: 'Sewerage zone' } as const;
 const nf = (n: number, dg = 0) => n.toLocaleString('en-IN', { maximumFractionDigits: dg });
 const km = (m: number) => (m / 1000).toLocaleString('en-IN', { maximumFractionDigits: 2 });
@@ -59,19 +61,22 @@ export function DashboardPage({ zones, onOpenStretch }: { zones: { id: string }[
   const scope = f.ward ? `Ward ${f.ward}` : f.zone ? `Zone ${f.zone}` : f.sewer ? `Sewerage zone ${f.sewer}` : 'Whole city';
   return (
     <div className="page dash">
-      <div className="page-head">
-        <h2>Dashboard <span className="muted scope">· {scope}</span></h2>
-        {d && <span className="muted small">Figures as of {fmtTime(d.generated_at)}</span>}
-      </div>
-      <div className="filters">
+      <div className="dash-hero">
+        <div className="dash-hero-text">
+          <span className="dash-kicker">Warangal UGD · progress, compliance, issues and grievances</span>
+          <h2>{scope}</h2>
+          {d && <span className="dash-asof">Figures as of {fmtTime(d.generated_at)}</span>}
+        </div>
+        <div className="dash-hero-filters">
         <select value={f.zone} onChange={(e) => setF({ zone: e.target.value, ward: '', sewer: '' })} aria-label="GWMC zone"><option value="">All GWMC zones</option>{zones.map((z) => <option key={z.id}>{z.id}</option>)}</select>
         <input type="number" placeholder="Ward" value={f.ward} min={1} max={66} onChange={(e) => setF({ ...f, ward: e.target.value, sewer: '' })} aria-label="Ward" />
         <select value={f.sewer} onChange={(e) => setF({ zone: '', ward: '', sewer: e.target.value })} aria-label="Sewerage zone">
           <option value="">All sewerage zones</option>{['1', '2', '3,4', '5', '6', '7'].map((s) => <option key={s} value={s}>Sewerage zone {s}</option>)}
         </select>
-        {(f.zone || f.ward || f.sewer) && <button className="btn ghost" onClick={() => setF({ zone: '', ward: '', sewer: '' })}>Whole city</button>}
+        {(f.zone || f.ward || f.sewer) && <button className="btn hero-reset" onClick={() => setF({ zone: '', ward: '', sewer: '' })}>Whole city</button>}
+        </div>
       </div>
-      <nav className="tabs inline dash-tabs">{VIEWS.map(([k, l]) => <button key={k} className={view === k ? 'on' : ''} onClick={() => setView(k)}>{l}</button>)}</nav>
+      <nav className="dash-tabs">{VIEWS.map(([k, l, ic]) => <button key={k} className={view === k ? 'on' : ''} onClick={() => setView(k)}><Icon name={ic} />{l}</button>)}</nav>
       {err && <p className="error">{err}</p>}
       {!d ? <p className="muted">Loading…</p> : (
         <>
@@ -91,12 +96,13 @@ export function DashboardPage({ zones, onOpenStretch }: { zones: { id: string }[
 }
 
 // ---------------- building blocks ----------------
-function Section({ title, children, action, sub }: { title: string; children: React.ReactNode; action?: React.ReactNode; sub?: string }) {
-  return <section className="dsec"><div className="dsec-head"><div><h3>{title}</h3>{sub && <div className="dsec-sub">{sub}</div>}</div>{action}</div>{children}</section>;
+function Section({ title, children, action, sub, icon }: { title: string; children: React.ReactNode; action?: React.ReactNode; sub?: string; icon?: string }) {
+  return <section className="dsec"><div className="dsec-head"><div className="dsec-titles">{icon && <span className="dsec-ico"><Icon name={icon} /></span>}<div><h3>{title}</h3>{sub && <div className="dsec-sub">{sub}</div>}</div></div>{action}</div>{children}</section>;
 }
 const pctStatus = (v: number | null, good = 90, watch = 60): keyof typeof STATUS => (v === null ? 'none' : v >= good ? 'good' : v >= watch ? 'watch' : 'bad');
 const series = (d: Dash, f: keyof Dash['trend'][number]) => d.trend.map((x) => Number(x[f]));
 const dates = (d: Dash) => d.trend.map((x) => x.date);
+const areaName = (level: string, k: string) => (level === 'ward' ? `Ward ${k}` : level === 'sewer' ? `Sewerage zone ${k}` : k);
 
 /** The headline row used on several views. */
 function Headline({ d, go }: { d: Dash; go: (v: View) => void }) {
@@ -112,7 +118,7 @@ function Headline({ d, go }: { d: Dash; go: (v: View) => void }) {
         <div className="mini-stack">{o.works.by_stage.filter((x) => x.n).map((x) => <span key={x.stage} style={{ flexGrow: x.n, background: x.color }} title={`${x.label}: ${x.n}`} />)}</div>
       </KpiCard>
       <KpiCard label="Compliance score" value={cs === null ? '—' : `${cs}`} unit={cs === null ? '' : '%'} status={pctStatus(cs)}
-        statusText={cs === null ? 'Nothing due yet' : o.compliance.overdue ? `${o.compliance.overdue} overdue` : o.compliance.to_verify ? `${o.compliance.to_verify} waiting for verification` : 'On track'} note="verified ÷ due" onClick={() => go('compliance')} />
+        statusText={cs === null ? 'Nothing due yet' : o.compliance.overdue ? `${o.compliance.overdue} overdue` : pctStatus(cs) === 'good' ? 'On track' : o.compliance.to_verify ? `Behind · ${o.compliance.to_verify} waiting for verification` : pctStatus(cs) === 'watch' ? 'Needs watching' : 'Behind'} note="verified ÷ due" onClick={() => go('compliance')} />
       <KpiCard label="Open issues" value={nf(o.issues.open)} status={o.issues.high ? 'bad' : o.issues.open ? 'watch' : 'good'}
         statusText={o.issues.high ? `${o.issues.high} high severity` : o.issues.open ? 'None high severity' : 'None open'} note={`${o.issues.overdue} overdue · ${nf(o.issues.resolved)} resolved`} onClick={() => go('issues')}>
         <Sparkline values={series(d, 'issues_opened')} color="#b45309" label="Issues raised per day" />
@@ -211,6 +217,21 @@ function Areas({ d, level, setLevel, onDrill }: { d: Dash; level: 'zone' | 'ward
         <div className="seg">{(['zone', 'ward', 'sewer'] as const).map((l) => <button key={l} className={level === l ? 'on' : ''} onClick={() => setLevel(l)}>By {l === "zone" ? "GWMC zone" : LEVEL_LABEL[l].toLowerCase()}</button>)}</div>
         <button className="btn" onClick={() => download(`dashboard-by-${level}`, cols.map((c) => c[1]), rows.map((a) => cols.map((c) => { const v = c[2](a); return v === -1 ? null : v; })))}>⬇ Excel (CSV)</button>
       </div>
+      <div className="dcols">
+        <Section title="Share of the DPR plan laid" sub="Highest first · tap a bar to look inside" icon="works">
+          <RankBars rows={[...d.areas].sort((a, b) => b.laid_pct_of_plan - a.laid_pct_of_plan).slice(0, 15).map((a) => ({ key: a.key, label: areaName(level, a.key), value: a.laid_pct_of_plan, sub: `${nf(a.works.pipe_laid_m)} m of ${nf(a.plan.km)} km`, tip: `${areaName(level, a.key)}: ${a.laid_pct_of_plan}% of ${nf(a.plan.km)} km planned` }))} unit="%" digits={2} onPick={onDrill} />
+        </Section>
+        <Section title="Open problems by area" sub="Issues and citizen grievances still open" icon="issues">
+          <StackRows parts={[{ key: 'high', label: 'High-severity issues', color: STATUS.bad }, { key: 'other', label: 'Other issues', color: '#f59e0b' }, { key: 'griev', label: 'Grievances', color: '#7c3aed' }]}
+            rows={[...d.areas].map((a) => ({ key: a.key, label: areaName(level, a.key), values: { high: a.issues.high, other: a.issues.open - a.issues.high, griev: a.grievances.open } }))
+              .filter((r) => r.values.high + r.values.other + r.values.griev > 0).sort((x, y) => (y.values.high + y.values.other + y.values.griev) - (x.values.high + x.values.other + x.values.griev)).slice(0, 15)}
+            empty="Nothing open in any area." onPick={onDrill} />
+        </Section>
+      </div>
+      <Section title="Compliance score by area" sub="Verified ÷ due · green 90%+, amber 60–89%, red below 60%" icon="compliance">
+        <RankBars rows={d.areas.filter((a) => a.compliance.score !== null).sort((a, b) => (a.compliance.score ?? 0) - (b.compliance.score ?? 0)).slice(0, 15).map((a) => ({ key: a.key, label: areaName(level, a.key), value: a.compliance.score ?? 0, color: STATUS[pctStatus(a.compliance.score)], sub: `${a.compliance.verified} of ${a.compliance.due} verified` }))}
+          unit="%" empty="No compliance is due in any area yet." onPick={onDrill} />
+      </Section>
       <p className="muted small">Tap a row to look inside it{level === 'zone' ? ' (its wards)' : ''}. Tap a column heading to sort.</p>
       <div className="table-wrap">
         <table className="grid">
@@ -252,7 +273,14 @@ function Progress({ d, onOpenStretch }: { d: Dash; onOpenStretch: (c: string) =>
           <Meter label="Manholes built" value={o.works.manholes_built} target={o.works.manholes_planned} note={`DPR total ${nf(o.plan.manholes)}`} />
         </Section>
       </div>
-      <Section title="Pipe laid per day"><TrendChart title="Metres laid" dates={dates(d)} series={[{ label: 'Laid', values: series(d, 'laid_m'), color: ACCENT }]} unit=" m" height={170} /></Section>
+      <div className="dcols">
+        <Section title="Pipe laid per day" icon="works"><TrendChart title="Metres laid" dates={dates(d)} series={[{ label: 'Laid', values: series(d, 'laid_m'), color: ACCENT }]} unit=" m" height={170} /></Section>
+        <Section title="Each work stretch: pipe laid" sub="Laid and still to lay, in metres · tap to open" icon="network">
+          <StackRows parts={[{ key: 'laid', label: 'Laid', color: ACCENT }, { key: 'left', label: 'Still to lay', color: '#cbd5e1' }]}
+            rows={[...d.stretches].sort((a, b) => b.length_m - a.length_m).slice(0, 15).map((s) => ({ key: s.code, label: s.code, sub: s.name, values: { laid: s.laid_m, left: Math.max(0, s.length_m - s.laid_m) } }))}
+            unit=" m" empty="No work stretches yet." onPick={onOpenStretch} />
+        </Section>
+      </div>
       <Section title={`No update for 7 days (${d.idle.length})`}>
         {!d.idle.length ? <p className="muted">None — every started work stretch was updated this week.</p> : (
           <div className="list">{d.idle.map((s) => <div key={s.code} className="list-row" onClick={() => onOpenStretch(s.code)}><div className="grow"><b>{s.code}</b> {s.name}<div className="muted small">Ward {s.ward} · last update {fmtTime(s.last_update)}</div></div></div>)}</div>
@@ -368,6 +396,15 @@ function IssuesView({ d }: { d: Dash }) {
         <KpiCard label="Days to resolve (average)" value={i.avg_days_to_resolve === null ? '—' : String(i.avg_days_to_resolve)} note={`${nf(i.resolved)} resolved`} />
       </div>
       <div className="dcols">
+        <Section title="By severity" sub="Open and resolved" icon="issues">
+          <StackRows parts={[{ key: 'open', label: 'Open', color: STATUS.bad }, { key: 'closed', label: 'Resolved', color: '#86efac' }]}
+            rows={i.by_severity.map((x) => ({ key: x.key, label: x.label, values: { open: x.open, closed: x.total - x.open } }))} />
+        </Section>
+        <Section title="Where issues stand" icon="compliance">
+          <StackBar parts={i.by_status.map((x) => ({ label: x.label, value: x.n, color: x.color }))} />
+        </Section>
+      </div>
+      <div className="dcols">
         <Section title="Open issues by kind"><RankBars rows={i.by_kind.filter((k) => k.open).sort((a, b) => b.open - a.open).map((k) => ({ label: k.label, value: k.open, tip: `${k.label}: ${k.open} open of ${k.total}` }))} color="#b45309" empty="No open issues." /></Section>
         <Section title="Open issues by area"><RankBars rows={d.areas.filter((a) => a.issues.open).sort((a, b) => b.issues.open - a.issues.open).map((a) => ({ label: a.key, value: a.issues.open, tip: `${a.key}: ${a.issues.open} open, ${a.issues.overdue} overdue` }))} color="#b45309" empty="No open issues." /></Section>
       </div>
@@ -388,6 +425,9 @@ function GrievancesView({ d }: { d: Dash }) {
         <KpiCard label="Past the 3-day limit" value={nf(g.overdue)} status={g.overdue ? 'bad' : 'good'} statusText={g.overdue ? 'Overdue' : 'None'} />
         <KpiCard label="Answered on time" value={g.on_time_pct === null ? '—' : String(g.on_time_pct)} unit={g.on_time_pct === null ? '' : '%'} status={pctStatus(g.on_time_pct)} statusText={g.on_time_pct === null ? 'None answered yet' : 'within 3 days'} />
       </div>
+      <Section title="Where citizen grievances stand" icon="grievances">
+        <StackBar parts={g.by_status.map((x) => ({ label: x.label, value: x.n, color: x.color }))} />
+      </Section>
       <div className="dcols">
         <Section title="Grievances by problem"><RankBars rows={g.by_category.filter((c) => c.total).sort((a, b) => b.total - a.total).map((c) => ({ label: c.label, value: c.total, tip: `${c.label}: ${c.total} received, ${c.open} open` }))} color="#7c3aed" empty="No grievances yet." /></Section>
         <Section title="Open grievances by area"><RankBars rows={d.areas.filter((a) => a.grievances.open).sort((a, b) => b.grievances.open - a.grievances.open).map((a) => ({ label: a.key, value: a.grievances.open }))} color="#7c3aed" empty="No open grievances." /></Section>
@@ -403,6 +443,12 @@ function Activity({ d }: { d: Dash }) {
   const maxU = Math.max(0, ...d.activity.map((a) => a.updates + a.records + a.issues));
   return (
     <div className="dgrid">
+      <Section title="Who did what · last 7 days" sub="Status updates, compliance records and issues reported, per person" icon="network">
+        <StackRows parts={[{ key: 'updates', label: 'Status updates', color: ACCENT }, { key: 'records', label: 'Compliance records', color: '#0d9488' }, { key: 'issues', label: 'Issues reported', color: '#f59e0b' }]}
+          rows={[...d.activity].map((a) => ({ key: a.name, label: a.name, sub: a.role, values: { updates: a.updates, records: a.records, issues: a.issues } })).filter((r) => r.values.updates + r.values.records + r.values.issues > 0)
+            .sort((x, y) => (y.values.updates + y.values.records + y.values.issues) - (x.values.updates + x.values.records + x.values.issues))}
+          empty="No field activity in the last 7 days." />
+      </Section>
       <Section title="Field activity · last 7 days" action={<button className="btn" onClick={() => download('field-activity', ['Name', 'Role', 'Status updates', 'Compliance records', 'Issues reported', 'Last update'],
         d.activity.map((a) => [a.name, a.role, a.updates, a.records, a.issues, a.last_at ? fmtTime(a.last_at) : '']))}>⬇ Excel (CSV)</button>}>
         <div className="table-wrap">

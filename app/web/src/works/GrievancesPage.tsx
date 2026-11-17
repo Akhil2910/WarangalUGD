@@ -1,6 +1,7 @@
 /** Grievances from citizens (via the QR boards): list, filters, detail with actions. */
 import { useEffect, useState } from 'react';
 import { GRIEVANCE_CATEGORIES, GRIEVANCE_STATUS } from 'shared';
+import { Insights } from './Insights.tsx';
 import { api } from '../api.ts';
 import { Modal } from './Modal.tsx';
 import { PhotoPicker } from './StretchCard.tsx';
@@ -32,6 +33,7 @@ export function GrievancesPage({ zones, onOpenStretch, onGoTo, refreshKey, onCha
   return (
     <div className="page">
       <div className="page-head"><h2>Grievances</h2><span className="muted">From citizens, through the QR board at each work stretch</span></div>
+      <Insights kind="grievances" refreshKey={refreshKey} />
       <div className="cards">
         {[['open', 'Open', n('new') + n('assigned'), '#f59e0b'], ['overdue', 'Overdue', over, '#dc2626'], ['resolved', 'Resolved', n('resolved'), '#16a34a'], ['rejected', 'Closed (not for this work)', n('rejected'), '#6b7280']].map(([k, label, v, c]) => (
           <button key={k as string} className={`stat ${(k === 'overdue' ? f.overdue === '1' : f.status === k && !f.overdue) ? 'on' : ''}`}

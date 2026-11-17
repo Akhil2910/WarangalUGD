@@ -1,6 +1,7 @@
 /** Issues: table (sort by any column, remembered) and board; filters; CSV for Excel; detail with actions. */
 import { useEffect, useState } from 'react';
 import { ISSUE_KINDS, ISSUE_STATUS, SEVERITY_COLOR, type Severity } from 'shared';
+import { Insights } from './Insights.tsx';
 import { api } from '../api.ts';
 import { PhotoPicker } from './StretchCard.tsx';
 import { fmtDate, fmtTime, useGps, type Uploaded } from './util.tsx';
@@ -84,6 +85,7 @@ export function IssuesPage({ zones, onOpenStretch, onGoTo, refreshKey, onChanged
   return (
     <div className="page">
       <h2>Issues</h2>
+      <Insights kind="issues" refreshKey={refreshKey} />
       <div className="stat-row">
         <button className={`stat ${f.status === 'active' && !f.severity ? 'on' : ''}`} style={{ borderColor: '#dc2626' }} onClick={() => setF({ ...f, status: 'active', severity: '', overdue: '' })}>
           <b>{c('open') + c('assigned')}</b><span>Open (incl. assigned)</span></button>

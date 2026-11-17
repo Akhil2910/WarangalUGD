@@ -1,6 +1,7 @@
 /** Works: every work stretch, with its stage, compliance and issues. Simple filters; tap a row to open it. */
 import { useEffect, useState } from 'react';
 import { COMPLIANCE_THEME, STAGES } from 'shared';
+import { Insights } from './Insights.tsx';
 import { api } from '../api.ts';
 import { fmtTime, km } from './util.tsx';
 
@@ -42,6 +43,7 @@ export function WorksPage({ zones, onOpen, onGoTo, refreshKey, filters, setFilte
         <h2>Works</h2>
         {onNew && <button className="btn primary" onClick={onNew}>+ New work stretch</button>}
       </div>
+      <Insights kind="works" refreshKey={refreshKey} />
       {data && (
         <div className="cards">
           {STAGES.map((s) => {

@@ -192,3 +192,33 @@ export function Ring({ pct, color, label, size = 76 }: { pct: number | null; col
 
 /** Background shade for a table cell (one hue, light to dark). */
 export const heat = (v: number, max: number) => (max > 0 && v > 0 ? `rgba(37, 99, 235, ${(0.08 + 0.42 * (v / max)).toFixed(2)})` : undefined);
+
+/** Several rows, each one bar split into the same parts (e.g. per person: updates, records, issues). Legend on top. */
+export function StackRows({ parts, rows, unit = '', empty = 'Nothing yet.', onPick }: {
+  parts: { key: string; label: string; color: string }[];
+  rows: { key: string; label: string; sub?: string; values: Record<string, number> }[];
+  unit?: string; empty?: string; onPick?: (key: string) => void;
+}) {
+  if (!rows.length) return <p className="muted empty-note">{empty}</p>;
+  const max = Math.max(1, ...rows.map((r) => parts.reduce((a, p) => a + (r.values[p.key] ?? 0), 0)));
+  return (
+    <div className="srows">
+      <div className="srows-legend">{parts.map((p) => <span key={p.key}><i style={{ background: p.color }} />{p.label}</span>)}</div>
+      {rows.map((r) => {
+        const total = parts.reduce((a, p) => a + (r.values[p.key] ?? 0), 0);
+        return (
+          <div key={r.key} className={`srow ${onPick ? 'click' : ''}`} onClick={onPick ? () => onPick(r.key) : undefined}
+            title={`${r.label}: ${parts.map((p) => `${p.label} ${nf(r.values[p.key] ?? 0)}`).join(', ')}`}>
+            <span className="rbar-label">{r.label}{r.sub && <small>{r.sub}</small>}</span>
+            <span className="srow-track">
+              <span className="srow-fill" style={{ width: `${(total / max) * 100}%` }}>
+                {parts.filter((p) => (r.values[p.key] ?? 0) > 0).map((p) => <span key={p.key} style={{ flexGrow: r.values[p.key], background: p.color }} />)}
+              </span>
+            </span>
+            <span className="rbar-val">{nf(total)}{unit}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
