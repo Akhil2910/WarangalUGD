@@ -16,6 +16,7 @@ import { CompliancePage } from './works/CompliancePage.tsx';
 import { IssuesPage, type IssueRow } from './works/IssuesPage.tsx';
 import { WorkPanel, newWork, type Preview, type WorkState } from './works/WorkPanel.tsx';
 import { FontButtons } from './ui.tsx';
+import { MapNav, type AreaType } from './MapNav.tsx';
 import { MyTasksButton, MyTasksModal, useMyTasks, type Task } from './works/MyTasks.tsx';
 import { AreaSummary } from './works/AreaSummary.tsx';
 import { addUtilityIcons, utilIconUrl } from './utilIcons.ts';
@@ -56,6 +57,7 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
   const [q, setQ] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [tab, setTab] = useState<Tab>('map');
+  const [mapObj, setMapObj] = useState<MlMap | null>(null);
   const [compLevel, setCompLevel] = useState<'project' | 'stretches'>('project');
   const [compFocus, setCompFocus] = useState<{ key: string; period?: string } | null>(null);
   const [tasksOpen, setTasksOpen] = useState(false);
@@ -111,12 +113,15 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
       hash: 'map',
       maxZoom: 21,
       attributionControl: { compact: true },
+      // north always up: no turning or tilting by accident (two-finger twist, right-drag, keyboard)
+      dragRotate: false, pitchWithRotate: false, touchPitch: false, maxPitch: 0, bearing: 0,
+      keyboard: false, // our own shortcuts (MapNav) work without clicking the map first
     });
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
-    map.addControl(new maplibregl.GeolocateControl({ trackUserLocation: true, positionOptions: { enableHighAccuracy: true } }), 'top-right');
-    map.addControl(new maplibregl.FullscreenControl(), 'top-right');
+    map.touchZoomRotate.disableRotation();
+    map.scrollZoom.setWheelZoomRate(1 / 350);
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
     mapRef.current = map;
+    setMapObj(map);
     map.on('click', (e) => clickRef.current(e));
     map.on('load', () => void addUtilityIcons(map));
     map.on('styleimagemissing', () => void addUtilityIcons(map));
@@ -128,7 +133,7 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
     map.once('load', () => {
       if (qs.get('open')) goToStretch(qs.get('open')!, true);
     });
-    return () => map.remove();
+    return () => { setMapObj(null); map.remove(); };
   }, [meta]);
 
   // layer switches
@@ -466,6 +471,22 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
     popup(popupHtml(top));
   };
 
+  /** Fly to a GWMC zone, ward or sewerage zone, outline it and show its progress (from the Go-to menu). */
+  const showArea = (type: AreaType, key: string | number) => {
+    const g = boundaries.current[type];
+    const f = g?.features.find((x) => (type === 'wards' ? Number(x.properties.ward) === Number(key) : type === 'admin' ? x.properties.zone_id === key : x.properties.name === key));
+    if (!f) return setError('That area is still loading. Try again in a moment.');
+    const p = f.properties;
+    const bbox = bboxOf(f.geometry.coordinates);
+    if (type === 'wards') setBoundary({ type, key: Number(p.ward), name: `Ward ${p.ward}`, info: `GWMC zone ${p.admin_zone}`, bbox, ward: Number(p.ward) });
+    else if (type === 'admin') setBoundary({ type, key: String(p.zone_id), name: String(p.name), info: `Zone ${p.zone_id}`, bbox, zone: String(p.zone_id) });
+    else setBoundary({ type, key: String(p.name), name: String(p.name), info: 'Sewerage zone', bbox, sewer: String(p.name).replace(/^Sewer(age)? zone\s*/i, '') });
+    // make the boundary layer visible so the outline shows
+    const lay = type === 'wards' ? 'wards' : type === 'admin' ? 'admin' : 'sewerzones';
+    setVisible((v) => (v[lay] ? v : { ...v, [lay]: true }));
+    fit(bbox, 16);
+  };
+
   const selectBoundary = (e: MapMouseEvent) => {
     const map = mapRef.current!;
     for (const [type, layer] of [['wards', 'wards-fill'], ['admin', 'admin-fill'], ['sewerzones', 'sewer-fill']] as const) {
@@ -555,6 +576,9 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
       }} />}
       <div className="body">
         <div ref={box} className="map" style={{ display: tab === 'map' ? undefined : 'none' }} />
+        {meta && <MapNav map={mapObj} active={tab === 'map' && !work && !marking} cityBounds={meta.bounds as BBox} zones={meta.admin_zones}
+          boundaries={boundaries.current} onShowArea={showArea} canReport={canReport}
+          onReportAt={(lon, lat) => { setBoundary(null); setReporting({ at: { lon, lat } }); }} />}
         {tab === 'map' && !work && !marking && (
           <>
             <button className="btn layers-btn" onClick={() => setLayersOpen((o) => !o)}>☰ Layers</button>
