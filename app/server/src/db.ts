@@ -75,7 +75,9 @@ export async function openDb(): Promise<Db> {
 const MIGRATIONS = path.join(path.dirname(fileURLToPath(import.meta.url)), 'migrations');
 
 export async function migrate(db: Db, log: (m: string) => void = console.log): Promise<void> {
-  await db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+  // create the list of applied changes only when missing (asking to create needs a right the app's user may not have)
+  const known = (await db.query<{ t: string | null }>(`SELECT to_regclass('schema_migrations')::text AS t`))[0]?.t;
+  if (!known) await db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
     id integer PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`);
   const done = new Set((await db.query<{ id: number }>('SELECT id FROM schema_migrations')).map((r) => Number(r.id)));
   const files = readdirSync(MIGRATIONS).filter((f) => /^\d{3}_.+\.sql$/.test(f)).sort();
@@ -86,7 +88,18 @@ export async function migrate(db: Db, log: (m: string) => void = console.log): P
     if (/\b(DROP\s+(TABLE|COLUMN|SCHEMA)|TRUNCATE)\b/i.test(sql)) {
       throw new Error(`Migration ${f} drops or empties data; migrations must be additive.`);
     }
-    await db.exec(`BEGIN;\n${sql}\nINSERT INTO schema_migrations (id, name) VALUES (${id}, '${f.replace(/'/g, "''")}');\nCOMMIT;`);
+    try {
+      await db.exec(`BEGIN;\n${sql}\nINSERT INTO schema_migrations (id, name) VALUES (${id}, '${f.replace(/'/g, "''")}');\nCOMMIT;`);
+    } catch (e) {
+      await db.exec('ROLLBACK').catch(() => {});
+      const err = e as { code?: string; message?: string };
+      if (err.code === '42501' || /permission denied|must be owner/i.test(err.message ?? '')) {
+        const who = (await db.query<{ u: string }>('SELECT current_user AS u').catch(() => [{ u: '?' }]))[0]?.u;
+        throw new Error(`Database change ${f} was refused: the database user "${who}" does not own the app's tables (${err.message}). `
+          + 'Nothing was changed. Fix once with:  bash deploy/fix-db-owner.sh   (see docs/04-Server-Setup.md).');
+      }
+      throw new Error(`Database change ${f} failed and was undone: ${err.message}`);
+    }
     log(`migration applied: ${f}`);
   }
 }

@@ -18,7 +18,9 @@
     "set-password": "tsx src/scripts/set-password.ts",
     "test:project": "tsx src/test/project.test.ts",
     "scrub-text": "tsx src/scripts/scrub-text.ts",
-    "test:admin": "tsx src/test/admin.test.ts"
+    "test:admin": "tsx src/test/admin.test.ts",
+    "migrate": "tsx src/scripts/migrate.ts",
+    "db-check": "tsx src/scripts/db-check.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.5.16",

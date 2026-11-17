@@ -6,6 +6,22 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const APP_ROOT = path.resolve(here, '..', '..');
 
+/**
+ * Settings file: the app and every command (set-password, export-sql, migrate, db-check) read it, so the
+ * database address and other settings live in ONE place. Default: <project>/.env (next to app/), never committed.
+ * Settings already given to the process (e.g. by pm2) win over the file.
+ */
+export const ENV_FILE = path.resolve(process.env.WGL_ENV_FILE || path.join(APP_ROOT, '..', '.env'));
+if (existsSync(ENV_FILE)) {
+  for (const line of readFileSync(ENV_FILE, 'utf8').split(/\r?\n/)) {
+    const m = /^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/.exec(line);
+    if (!m || line.trim().startsWith('#')) continue;
+    let v = m[2];
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+    if (process.env[m[1]] === undefined || process.env[m[1]] === '') process.env[m[1]] = v;
+  }
+}
+
 function env(name: string, fallback?: string): string | undefined {
   const v = process.env[name];
   return v === undefined || v === '' ? fallback : v;

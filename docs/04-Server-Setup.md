@@ -132,9 +132,46 @@ sudo certbot --nginx -d <your web address>
   Also copy `/opt/wgl/app-state/files` (photos) to the backup place.
 - From then on, work only on the server; stop using the copy on the office PC.
 
-## Updating to a new version later
+## Updating to a new version — always use the update script
 
 ```bash
-cd /opt/wgl && git pull && cd app && npm ci && npm run build && sudo systemctl restart wgl
+cd /home/ubuntu/WarangalUGD && bash deploy/update.sh
 ```
-Database changes are applied automatically at start-up; they only ever add, never delete.
+
+It does, in order: settings file → new code → install and build → database check → database backup
+(`app-state/backups`, newest 10 kept) → database changes (all or nothing) → restart → health check.
+**If any step fails it goes back to the previous version and restarts that, so the app stays up.**
+Never update with `git pull` + `pm2 restart` by hand: that restarts before checking the database.
+
+## The settings file (`/home/ubuntu/WarangalUGD/.env`)
+
+One private file (chmod 600, never on GitHub) that the app and every command read:
+
+```
+DATABASE_URL=postgresql://warangal_ugd_app:<password>@127.0.0.1:5432/warangal_ugd
+PORT=8787
+PUBLIC_BASE_URL=https://<your web address>
+COOKIE_SECURE=true
+```
+
+The update script creates it the first time (from the running app, pm2, your shell or start scripts, or by asking).
+With it, commands need nothing extra, for example:
+
+```bash
+cd /home/ubuntu/WarangalUGD/app && npm run set-password -w server -- '<password>' name@gwmc.local
+npm run db-check -w server        # connection, pending database changes, table ownership
+npm run export-sql -w server      # a backup .sql into app-state/backups
+```
+
+## One-time: the app's database user must own its tables
+
+Updates add columns and tables. PostgreSQL allows that only for the **owner** of a table. If the tables were
+created by another user (e.g. `postgres` when the data was loaded), run once:
+
+```bash
+cd /home/ubuntu/WarangalUGD && bash deploy/fix-db-owner.sh
+```
+
+It finds PostgreSQL (in Docker or on the server), shows what it will do, asks, and makes the app's user the owner
+of every table. No data is changed. `npm run db-check -w server` then says `READY`. The update script offers it
+automatically when needed.
