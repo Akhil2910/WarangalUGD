@@ -309,7 +309,8 @@ export function gatesHit(
     const open = ev.units.filter((u) => !['complied', 'verified', 'not_applicable'].includes(u.state));
     if (!open.length) continue;
     const what = item.per === 'stretch' ? '' : ` (${open.length} of ${ev.units.length} ${item.per === 'reach' ? 'reaches' : 'manholes'} pending)`;
-    out.push({ item, gate: item.gate, message: `${item.name}: not complied${what}.` });
+    const why = open.some((u) => u.state === 'not_complied') ? 'recorded as not complied' : 'not recorded yet';
+    out.push({ item, gate: item.gate, message: `${item.name}: ${why}${what}.` });
   }
   return out;
 }

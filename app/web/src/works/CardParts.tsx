@@ -3,7 +3,7 @@
  * details), quick Update for field staff, photo gallery.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { CUTTING, ROAD_TYPES, normaliseStatus, validateStatus, type WorkStatus } from 'shared';
+import { CUTTING, ROAD_TYPES, normaliseStatus, stepGuarded, validateStatus, type WorkStatus } from 'shared';
 import { api, ApiError } from '../api.ts';
 import { Icon } from '../ui.tsx';
 import { Modal } from './Modal.tsx';
@@ -111,7 +111,7 @@ export function Figures({ card }: { card: Card }) {
 }
 
 /** Quick update for the field: what changed today, a photo, save. */
-export function QuickUpdate({ card, onSaved, onFull }: { card: Card; onSaved: (c: Card) => void; onFull: () => void }) {
+export function QuickUpdate({ card, onSaved, onFull, onRecord, isCommissioner }: { card: Card; onSaved: (c: Card) => void; onFull: () => void; onRecord: (itemKey: string) => void; isCommissioner: boolean }) {
   const s = card.stretch;
   const laid0 = laidOf(s);
   const len = Math.round(s.length_m);
@@ -141,6 +141,9 @@ export function QuickUpdate({ card, onSaved, onFull }: { card: Card; onSaved: (c
   }, [addM, addMh, cutting, restoration, roadType, s]);
   const check = useMemo(() => validateStatus(s.status, next, s, photos.length, s.approval), [next, photos.length, s]);
   const changed = JSON.stringify(next) !== JSON.stringify(normaliseStatus(s.status));
+  // items on this work stretch that must be recorded before this change can be saved
+  const blocking = changed ? card.compliance.stages.flatMap((st) => st.items).filter((i) => i.applies && i.item.gate === 'block'
+    && stepGuarded(i.item.due_at, s.status, next) && !['complied', 'verified', 'not_applicable'].includes(i.state)) : [];
   const rt = ROAD_TYPES.find((r) => r.key === roadType);
   const save = async () => {
     setBusy(true); setMsg({});
@@ -185,11 +188,23 @@ export function QuickUpdate({ card, onSaved, onFull }: { card: Card; onSaved: (c
       )}
       <QuickPhotos photos={photos} setPhotos={setPhotos} gps={gps} gpsState={gpsState} />
       <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Remark (optional)" aria-label="Remark" />
+      {blocking.length > 0 && (
+        <div className="qblock-gate">
+          <b>Before saving this, record on this work stretch:</b>
+          {blocking.map((i) => (
+            <div key={i.item.key} className="qgate-row">
+              <span className="grow">{i.item.name}<small>{i.state === 'not_complied' ? 'Recorded as not complied — record it again once it is in order' : 'Not recorded yet'}</small></span>
+              {card.can.record_compliance && <button className="btn primary" onClick={() => onRecord(i.item.key)}>Record now</button>}
+            </div>
+          ))}
+          {isCommissioner && <small className="muted">As Commissioner you can still save with a reason: Edit full status.</small>}
+        </div>
+      )}
       {changed && check.errors.length > 0 && <p className="error small">{check.errors.join(' ')}</p>}
       {changed && check.warnings.length > 0 && <p className="warn small">{check.warnings.join(' ')}</p>}
       {msg.error && <p className="error">{msg.error}</p>}
       {msg.ok && <p className="ok">{msg.ok}</p>}
-      <button className="btn primary big" disabled={busy || !changed || check.errors.length > 0} onClick={save}>{busy ? 'Saving…' : changed ? 'Save update' : 'Nothing changed yet'}</button>
+      <button className="btn primary big" disabled={busy || !changed || check.errors.length > 0 || blocking.length > 0} onClick={save}>{busy ? 'Saving…' : changed ? 'Save update' : 'Nothing changed yet'}</button>
     </div>
   );
 }

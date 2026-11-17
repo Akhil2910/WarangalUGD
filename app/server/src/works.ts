@@ -255,7 +255,7 @@ export async function saveStatus(t: Q, u: SessionUser, code: string, raw: WorkSt
   let override = '';
   if (blocks.length) {
     if (!(u.role === 'commissioner' && o.override_reason?.trim()))
-      throw new HttpError(409, `Not saved. Complete these compliances first: ${blocks.map((g) => g.message).join(' ')}${u.role === 'commissioner' ? ' (As Commissioner you may override with a reason.)' : ''}`, 'GATE_BLOCK');
+      throw new HttpError(409, `Not saved. First record these on this work stretch (Compliance tab): ${blocks.map((g) => g.message).join(' ')}${u.role === 'commissioner' ? ' (As Commissioner you may override with a reason.)' : ''}`, 'GATE_BLOCK');
     override = o.override_reason!.trim();
   }
   const warnings = [...check.warnings, ...gates.filter((g) => g.gate === 'warn').map((g) => `Compliance: ${g.message}`), ...(override ? blocks.map((g) => `Overridden: ${g.message}`) : [])];

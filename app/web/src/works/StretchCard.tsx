@@ -136,7 +136,7 @@ export function StretchCard({ code, me, onClose, onChanged, onLocate, onEditSite
             <div className="muted small">Last update: {s.updated_by_name ? `${fmtTime(s.updated_at)} by ${s.updated_by_name}` : 'none yet'}</div>
           </div>
         )}
-        {tab === 'update' && <QuickUpdate card={card} onSaved={updated} onFull={() => setTab('full')} />}
+        {tab === 'update' && <QuickUpdate card={card} onSaved={updated} onFull={() => setTab('full')} onRecord={(k) => go('compliance', k)} isCommissioner={me.role === 'commissioner'} />}
         {tab === 'full' && <><button className="link" onClick={() => setTab('update')}>‹ Back to quick update</button><StatusTab card={card} onSaved={updated} /></>}
         {tab === 'compliance' && <ComplianceTab card={card} me={me} onSaved={updated} focus={focus} />}
         {tab === 'issues' && <IssuesTab card={card} reload={() => { load(); onChanged(); }} />}
