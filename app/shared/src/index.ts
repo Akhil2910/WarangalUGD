@@ -79,3 +79,4 @@ export * from './status.ts';
 export * from './compliance.ts';
 export * from './issues.ts';
 export * from './grievances.ts';
+export * from './project.ts';

@@ -9,6 +9,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { projectGates } from './project.ts';
 import {
   CUTTING, MOTORABILITY, PIPELINE, RESTORATION, ROAD_TYPES, ROLE_RANK, COMPLIANCE_STAGES, COMPLIANCE_CATEGORIES, EVIDENCE_KINDS,
   deriveStage, evaluateItem, gatesHit, itemUnits, nextApproval, normaliseStatus, passes, statusBadges, statusChanges, statusTags,
@@ -163,6 +164,8 @@ export async function card(q: Q, u: SessionUser, code: string) {
       records: records.slice(0, 200),
     },
     issues: await issuesForCard(q, code),
+    // project-level pre-work items that would stop work starting on this road
+    project_blocks: st.status.cutting === 'none' && st.status.pipeline === 'not_started' ? (await projectGates(q)).filter((g) => g.gate === 'block').map((g) => g.message) : [],
     can: can(u, st),
   };
 }
@@ -245,7 +248,9 @@ export async function saveStatus(t: Q, u: SessionUser, code: string, raw: WorkSt
   const now = new Date();
   const items = await currentItems(t);
   const records = await recordsFor(t, code);
-  const gates = gatesHit(items, st, prev, next, st.milestones ?? {}, records, now);
+  const gates: { gate: string; message: string }[] = gatesHit(items, st, prev, next, st.milestones ?? {}, records, now);
+  // starting work on a road (road cut, or pipe laying begun): project-level pre-work items apply too
+  if ((prev.cutting === 'none' && next.cutting !== 'none') || (prev.pipeline === 'not_started' && next.pipeline !== 'not_started')) gates.push(...(await projectGates(t)));
   const blocks = gates.filter((g) => g.gate === 'block');
   let override = '';
   if (blocks.length) {

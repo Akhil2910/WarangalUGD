@@ -5,6 +5,7 @@ import {
 } from 'shared';
 import { api } from '../api.ts';
 import { fmtDate, fmtTime } from './util.tsx';
+import { ProjectCompliance } from './ProjectCompliance.tsx';
 
 interface RecRow {
   id: number; stretch_code: string; ward: number; admin_zone: string; item_key: string; item_name: string; category: string; mandatory: boolean;
@@ -13,18 +14,27 @@ interface RecRow {
   verified_at: string | null; verified_by_name: string | null; verify_note: string; can_verify: boolean;
 }
 
-export function CompliancePage({ zones, onOpen, isCommissioner, refreshKey, onChanged }: {
+export function CompliancePage({ zones, onOpen, isCommissioner, refreshKey, onChanged, role, level, setLevel, focus }: {
   zones: { id: string }[]; onOpen: (code: string) => void; isCommissioner: boolean; refreshKey: number; onChanged: () => void;
+  role: string; level: 'project' | 'stretches'; setLevel: (l: 'project' | 'stretches') => void; focus: { key: string; period?: string } | null;
 }) {
   const [view, setView] = useState<'records' | 'list'>('records');
   return (
     <div className="page">
-      <h2>Compliance</h2>
+      <div className="page-head">
+        <h2>Compliance</h2>
+        <div className="seg level-seg">
+          <button className={level === 'project' ? 'on' : ''} onClick={() => setLevel('project')}>Project</button>
+          <button className={level === 'stretches' ? 'on' : ''} onClick={() => setLevel('stretches')}>Work stretches</button>
+        </div>
+      </div>
+      {level === 'project' ? <ProjectCompliance role={role} isCommissioner={isCommissioner} focus={focus} onChanged={onChanged} refreshKey={refreshKey} /> : <>
       <nav className="tabs inline">
         <button className={view === 'records' ? 'on' : ''} onClick={() => setView('records')}>Records and verification</button>
         <button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>Compliance list (stage-wise)</button>
       </nav>
       {view === 'records' ? <Records zones={zones} onOpen={onOpen} refreshKey={refreshKey} onChanged={onChanged} /> : <ItemList isCommissioner={isCommissioner} onChanged={onChanged} />}
+      </>}
     </div>
   );
 }

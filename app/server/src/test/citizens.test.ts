@@ -22,6 +22,8 @@ await migrate(db, () => {});
 await seedAccounts(db, () => {});
 await loadComplianceItems(db, () => {});
 const app = await buildApp(db);
+// these tests start work on roads: the project's blocking pre-work items (insurance, safety plan) are taken as verified
+await db.query(`INSERT INTO project_records (item_key, period, status, valid_to, note, override) SELECT key, '', 'verified', '2099-12-31', 'test set-up', 'test set-up' FROM project_items WHERE gate = 'block'`);
 
 const pwFile = readFileSync(path.join(process.env.STATE_DIR, 'initial-passwords.txt'), 'utf8');
 const otp = (email: string) => pwFile.split('\n').find((l) => l.includes(email))!.split('one-time password: ')[1].trim();

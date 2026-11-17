@@ -16,6 +16,7 @@ import { CompliancePage } from './works/CompliancePage.tsx';
 import { IssuesPage, type IssueRow } from './works/IssuesPage.tsx';
 import { WorkPanel, newWork, type Preview, type WorkState } from './works/WorkPanel.tsx';
 import { FontButtons } from './ui.tsx';
+import { MyTasksButton, MyTasksModal, useMyTasks, type Task } from './works/MyTasks.tsx';
 import { AreaSummary } from './works/AreaSummary.tsx';
 import { addUtilityIcons, utilIconUrl } from './utilIcons.ts';
 // MapLibre 6 runs its tile parsing in a separate worker file; let Vite bundle it and tell MapLibre where it is.
@@ -55,6 +56,9 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
   const [q, setQ] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [tab, setTab] = useState<Tab>('map');
+  const [compLevel, setCompLevel] = useState<'project' | 'stretches'>('project');
+  const [compFocus, setCompFocus] = useState<{ key: string; period?: string } | null>(null);
+  const [tasksOpen, setTasksOpen] = useState(false);
   const [utilOn, setUtilOn] = useState<Set<string>>(() => new Set(UTILITY_LAYERS.map((u) => u.key)));
   const [drainsOn, setDrainsOn] = useState(false);
   const [utilCounts, setUtilCounts] = useState<Record<string, number>>({});
@@ -62,6 +66,7 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
   const [marking, setMarking] = useState<{ layer: string; pts: [number, number][]; form: boolean } | null>(null);
   const [openCode, setOpenCode] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const tasks = useMyTasks(refreshKey);
   const [theme, setTheme] = useState<'stage' | 'compliance'>('stage');
   const [worksFilters, setWorksFilters] = useState<Filters>(EMPTY_FILTERS);
   const [work, setWork] = useState<WorkState | null>(null);
@@ -533,6 +538,7 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
             </ul>
           )}
         </div>
+        <MyTasksButton tasks={tasks} onOpen={() => setTasksOpen(true)} />
         <FontButtons />
         <div className="user">
           <span className="who">{user.name}<small>{ROLE_LABEL[user.role as Role] ?? user.role}</small></span>
@@ -540,6 +546,13 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
         </div>
       </header>
       {error && <div className="banner" onClick={() => setError('')}>{error} <u>close</u></div>}
+      {tasksOpen && <MyTasksModal tasks={tasks} onClose={() => setTasksOpen(false)} onGo={(t: Task) => {
+        setTasksOpen(false);
+        if (t.link.type === 'project') { setCompLevel('project'); setCompFocus({ key: t.link.key, period: t.link.period }); setTab('compliance'); }
+        else if (t.link.type === 'stretch_compliance') { setCompLevel('stretches'); setTab('compliance'); }
+        else if (t.link.type === 'issue') setTab('issues');
+        else if (t.link.type === 'grievance') setTab('grievances');
+      }} />}
       <div className="body">
         <div ref={box} className="map" style={{ display: tab === 'map' ? undefined : 'none' }} />
         {tab === 'map' && !work && !marking && (
@@ -664,7 +677,8 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
           <IssuesPage zones={meta.admin_zones} onOpenStretch={setOpenCode} onGoTo={(lon, lat) => goToPoint(lon, lat, 19)} refreshKey={refreshKey} onChanged={changed} isCommissioner={user.role === 'commissioner'} />
         )}
         {tab === 'compliance' && meta && (
-          <CompliancePage zones={meta.admin_zones} onOpen={setOpenCode} isCommissioner={user.role === 'commissioner'} refreshKey={refreshKey} onChanged={changed} />
+          <CompliancePage zones={meta.admin_zones} onOpen={setOpenCode} isCommissioner={user.role === 'commissioner'} refreshKey={refreshKey} onChanged={changed}
+            role={user.role} level={compLevel} setLevel={setCompLevel} focus={compFocus} />
         )}
         {openCode && (
           <StretchCard code={openCode} me={user} onClose={() => setOpenCode(null)} onChanged={changed} onLocate={(c) => { setOpenCode(null); locate(c); }} onEditSitePipes={canMake ? editPipes : undefined} />

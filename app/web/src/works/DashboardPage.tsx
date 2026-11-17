@@ -24,6 +24,11 @@ interface Dash {
   compliance_items: { key: string; name: string; stage: string; complied: number; verified: number; not_complied: number; waiting: number }[];
   stretches: { code: string; name: string; ward: number; zone: string; length_m: number; stage: string; laid_m: number; score: number | null; overdue: number; open_issues: number; grievances_open: number }[];
   idle: { code: string; name: string; ward: number; stage: string; last_update: string }[];
+  project: {
+    settings: { name: string; work_start: string | null; completion: string | null };
+    summary: { phase: string; label: string; open: boolean; asked: number; done: number; overdue: number; expiring: number; waiting: number; score: number | null }[];
+    attention: { key: string; phase: string; name: string; period_label: string; status: string; status_label: string; due: string | null; valid_to: string | null }[];
+  };
 }
 type View = 'overall' | 'areas' | 'progress' | 'compliance' | 'issues' | 'grievances' | 'activity';
 const VIEWS: [View, string][] = [['overall', 'Overall'], ['areas', 'By area'], ['progress', 'Work progress'], ['compliance', 'Compliance'], ['issues', 'Issues'], ['grievances', 'Grievances'], ['activity', 'Field activity']];
@@ -125,7 +130,12 @@ function Headline({ d, go }: { d: Dash; go: (v: View) => void }) {
 function Attention({ d, onOpenStretch, go }: { d: Dash; onOpenStretch: (c: string) => void; go: (v: View) => void }) {
   const o = d.overall;
   const items: { s: keyof typeof STATUS; text: string; act: () => void }[] = [];
-  if (o.compliance.overdue) items.push({ s: 'bad', text: `${o.compliance.overdue} compliance item(s) overdue`, act: () => go('compliance') });
+  for (const a of d.project.attention.slice(0, 6)) items.push({
+    s: a.status === 'waiting' ? 'watch' : 'bad',
+    text: `Project: ${a.name}${a.period_label ? `, ${a.period_label}` : ''} — ${a.status_label.toLowerCase()}${a.status === 'expiring' && a.valid_to ? ` (valid till ${a.valid_to})` : ''}`,
+    act: () => go('compliance'),
+  });
+  if (o.compliance.overdue) items.push({ s: 'bad', text: `${o.compliance.overdue} work-stretch compliance item(s) overdue`, act: () => go('compliance') });
   if (o.compliance.not_complied) items.push({ s: 'bad', text: `${o.compliance.not_complied} compliance item(s) marked not complied`, act: () => go('compliance') });
   if (o.issues.high) items.push({ s: 'bad', text: `${o.issues.high} high-severity issue(s) open`, act: () => go('issues') });
   if (o.grievances.overdue) items.push({ s: 'bad', text: `${o.grievances.overdue} citizen grievance(s) past the 3-day limit`, act: () => go('grievances') });
@@ -281,10 +291,32 @@ function Compliance({ d, onOpenStretch }: { d: Dash; onOpenStretch: (c: string) 
     const items = d.compliance_items.filter((i) => i.stage === s.key);
     return { s, verified: items.reduce((a, i) => a + i.verified, 0), waiting: items.reduce((a, i) => a + i.waiting, 0), not: items.reduce((a, i) => a + i.not_complied, 0) };
   }).filter((x) => x.verified + x.waiting + x.not > 0);
+  const pj = d.project;
   return (
     <div className="dgrid">
+      <Section title="Project compliance" sub={`${pj.settings.name} · whole project · verified ÷ asked so far`}>
+        <div className="phase-grid">
+          {pj.summary.map((x) => (
+            <div key={x.phase} className="phase-box">
+              <div className="phase-top"><b>{x.label}</b><Ring pct={x.score} color={STATUS[pctStatus(x.score)]} label={`${x.label} score`} size={64} /></div>
+              <div className="small fig">{x.asked ? `${x.done} of ${x.asked} verified` : x.open ? 'Nothing asked yet' : 'Not started yet'}</div>
+              <div className="phase-flags">
+                {x.overdue > 0 && <span><StatusIcon s="bad" /> {x.overdue} overdue / rejected</span>}
+                {x.expiring > 0 && <span><StatusIcon s="bad" /> {x.expiring} expiring</span>}
+                {x.waiting > 0 && <span><StatusIcon s="watch" /> {x.waiting} to verify</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+        {pj.attention.length > 0 && (
+          <div className="attn">{pj.attention.map((a) => (
+            <div key={`${a.key}|${a.period_label}`} className="attn-row static"><StatusIcon s={a.status === 'waiting' ? 'watch' : 'bad'} />
+              <span className="grow">{a.name}{a.period_label ? `, ${a.period_label}` : ''} <span className="muted">· {a.status_label}{a.valid_to && a.status === 'expiring' ? ` · valid till ${a.valid_to}` : a.due ? ` · due ${a.due}` : ''}</span></span></div>
+          ))}</div>
+        )}
+      </Section>
       <div className="dcols">
-        <Section title="Compliance score" sub="Mandatory items verified ÷ items due">
+        <Section title="Work-stretch compliance score" sub="Mandatory items verified ÷ items due">
           <div className="score-row">
             <Ring pct={c.score} color={STATUS[st]} label="Compliance score" size={110} />
             <div className="score-facts">

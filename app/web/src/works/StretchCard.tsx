@@ -12,7 +12,7 @@ import { fmtDate, fmtTime, GpsBadge, uploadFile, useGps, type Uploaded } from '.
 import { IssueDetail, type IssueRow } from './IssuesPage.tsx';
 import { ReportIssueModal } from './ReportIssue.tsx';
 import { QrBoard } from './QrBoard.tsx';
-import { ISSUE_STATUS, ROLE_LABEL, SEVERITY_COLOR } from 'shared';
+import { ISSUE_STATUS, PHASES, ROLE_LABEL, SEVERITY_COLOR, STAGE_PHASE } from 'shared';
 
 interface Unit { unit: { id: string; label: string; design_invert?: number | null }; state: UnitState; state_label: string; due_since: string | null; overdue_since: string | null }
 interface ItemView { item: ComplianceItem; applies: boolean; state: UnitState; state_label: string; progress: string; units: Unit[] }
@@ -36,6 +36,7 @@ export interface Card {
     records: Rec[];
   };
   issues: IssueRow[];
+  project_blocks?: string[];
   can: { update: boolean; record_compliance: boolean; verify: boolean; approve: boolean; override: boolean; report_issue: boolean; resolve_issue: boolean; assign_issue: boolean; delete_issue: boolean };
 }
 
@@ -92,6 +93,9 @@ export function StretchCard({ code, me, onClose, onChanged, onLocate, onEditSite
         {card.tags.length > 0 && <div className="tags">{card.tags.map((t) => <span key={t} className={`tag ${/^(Overdue|Not complied)/.test(t) ? 'bad' : ''}`}>{t}</span>)}</div>}
         <div className="muted small">Last update: {s.updated_by_name ? `${fmtTime(s.updated_at)} by ${s.updated_by_name}` : 'none yet'} · version {s.version}</div>
       </div>
+      {(card.project_blocks?.length ?? 0) > 0 && (
+        <div className="project-block">🔒 Work cannot start on this road until the project's pre-work items are verified: {card.project_blocks!.map((m) => m.replace(/^Project: /, '')).join(' ')} <span className="muted">(Compliance → Project)</span></div>
+      )}
       <nav className="tabs">
         {(['status', 'compliance', 'issues', 'history'] as const).map((t) => {
           const openIssues = card.issues.filter((i) => i.status !== 'resolved').length;
@@ -380,9 +384,18 @@ function ComplianceTab({ card, me, onSaved }: { card: Card; me: { id: string; ro
         <div className={sum.overdue ? 'bad' : ''}><b>{sum.overdue}</b><span>overdue</span></div>
         <div className={sum.not_complied ? 'bad' : ''}><b>{sum.not_complied}</b><span>not complied</span></div>
       </div>
-      {card.compliance.stages.map((stg) => {
+      {PHASES.map((ph) => {
+        const stages = card.compliance.stages.filter((stg) => STAGE_PHASE[stg.key as keyof typeof STAGE_PHASE] === ph.key && stg.items.some((i) => i.applies));
+        if (!stages.length) return null;
+        const all = stages.flatMap((stg) => stg.items.filter((i) => i.applies));
+        const done = all.filter((i) => i.state === 'verified' || i.state === 'not_applicable').length;
+        const bad = all.filter((i) => i.state === 'overdue' || i.state === 'not_complied').length;
+        return (
+          <div key={ph.key} className="cphase">
+            <div className="cphase-head"><b>{ph.label}</b><span className="muted small">{done}/{all.length} verified{bad ? '' : ''}</span>{bad > 0 && <span className="pchip bad">{bad} overdue / not complied</span>}
+              <span className="cphase-bar"><span style={{ width: `${all.length ? (done / all.length) * 100 : 0}%` }} /></span></div>
+      {stages.map((stg) => {
         const items = stg.items.filter((i) => i.applies);
-        if (!items.length) return null;
         return (
           <section key={stg.key} className="cstage">
             <h4>{stg.no}. {stg.label} <span className="muted small">{stg.reached_at ? `due since ${fmtDate(stg.reached_at)}` : `due when: ${stg.dueWhen.toLowerCase()}`}</span></h4>
@@ -417,6 +430,9 @@ function ComplianceTab({ card, me, onSaved }: { card: Card; me: { id: string; ro
               );
             })}
           </section>
+        );
+      })}
+          </div>
         );
       })}
       {card.compliance.stages.every((s) => s.items.every((i) => !i.applies)) && <p className="muted">No compliance items apply.</p>}

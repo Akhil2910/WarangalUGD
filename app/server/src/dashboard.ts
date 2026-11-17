@@ -7,6 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { GRIEVANCE_CATEGORIES, indiaDate, ISSUE_KINDS, STAGES, type WorkStatus } from 'shared';
 import type { Db } from './db.ts';
+import { projectState } from './project.ts';
 import { dprPipe, planTotals } from './dpr.ts';
 import { iso, parse, type Q } from './works.ts';
 import { zoneOfWard } from './geo.ts';
@@ -154,8 +155,17 @@ export function registerDashboard(app: FastifyInstance, db: Db) {
     const idle = works.filter((w) => !['not_started', 'restored_approved'].includes(w.stage) && new Date(w.updated_at as string) < new Date(Date.now() - 7 * 86400000))
       .map((w) => ({ code: w.code, name: w.road_name, ward: w.ward, stage: w.stage, last_update: iso(w.updated_at) }));
 
+    // ---- project-level compliance (whole project; not split by area) ----
+    const ps = await projectState(q, req.user ?? null);
+    const project = {
+      settings: ps.settings, summary: ps.summary,
+      attention: ps.items.flatMap((it) => it.periods.filter((p) => ['overdue', 'expired', 'rejected', 'expiring', 'waiting'].includes(p.status))
+        .map((p) => ({ key: it.key, phase: it.phase, name: it.name, period: p.key, period_label: p.label, status: p.status, status_label: p.status_label, due: p.due, valid_to: p.record?.valid_to ?? null })))
+        .sort((a, b) => ['expired', 'overdue', 'rejected', 'expiring', 'waiting'].indexOf(a.status) - ['expired', 'overdue', 'rejected', 'expiring', 'waiting'].indexOf(b.status)).slice(0, 12),
+    };
+
     return {
-      generated_at: new Date().toISOString(), filter: f, overall, areas, trend: [...trend.values()],
+      generated_at: new Date().toISOString(), filter: f, overall, areas, trend: [...trend.values()], project,
       activity: act.map((a) => ({ name: a.name, role: a.role, updates: Number(a.updates), records: Number(a.records), issues: Number(a.issues), last_at: iso(a.last_at) })),
       compliance_items: items.map((i) => ({ ...i, complied: Number(i.complied), verified: Number(i.verified), not_complied: Number(i.not_complied), waiting: Number(i.waiting) })),
       stretches: works.map((w) => ({ code: w.code, name: w.road_name, ward: w.ward, zone: w.admin_zone, length_m: Math.round(w.length_m), stage: w.stage,
