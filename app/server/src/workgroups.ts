@@ -19,6 +19,7 @@ import {
   can, codeOf, currentItems, evaluate, iso, loadStretch, midpoint, parse, recordBody, recordCompliance, recordsFor, saveStatus, sweep, verifyRecord,
   type Q, type StretchRow,
 } from './works.ts';
+import { has } from './perms.ts';
 
 const GCODE = /^WS-\d{4,6}$/;
 const groupCode = (c: string) => {
@@ -83,7 +84,7 @@ async function event(q: Q, code: string, by: string, action: string, note = '', 
   await q('INSERT INTO work_group_events (group_code, by_user, action, note, detail) VALUES ($1,$2,$3,$4,$5)', [code, by, action, note, JSON.stringify(detail)]);
 }
 
-const canManage = (u: SessionUser, ms: { admin_zone: string; ward: number }[]) => ROLE_RANK[u.role] >= 3 && ms.every((m) => can(u, m).update);
+const canManage = (u: SessionUser, ms: { admin_zone: string; ward: number }[]) => has(u, 'stretch.create') && ms.every((m) => can(u, m).update);
 
 /** Per compliance item: how each road stands (for the work stretch's Compliance tab). */
 async function groupCompliance(q: Q, codes: string[]) {
@@ -255,7 +256,7 @@ export function registerWorkGroups(app: FastifyInstance, db: Db) {
          WHERE r.bulk_id IS NOT NULL AND r.stretch_code = ANY($1::text[])
          GROUP BY r.bulk_id, r.item_key, i.name, u.name, r.recorded_by ORDER BY min(r.recorded_at) DESC LIMIT 50`, [ms.map((m) => m.code)],
       ).then((rows) => rows.map((r) => ({ ...r, recorded_at: iso(r.recorded_at), records: Number(r.records), waiting: Number(r.waiting),
-        can_verify: Number(r.waiting) > 0 && ms.every((m) => can(u, m).verify) && (r.recorded_by !== u.id || u.role === 'commissioner') }))),
+        can_verify: Number(r.waiting) > 0 && ms.every((m) => can(u, m).verify) && (r.recorded_by !== u.id || has(u, 'compliance.verify_own')) }))),
       can: {
         edit: canManage(u, ms),
         update: ms.length > 0 && ms.every((m) => can(u, m).update),

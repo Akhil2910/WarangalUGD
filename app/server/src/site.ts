@@ -14,9 +14,10 @@ import { HttpError, type SessionUser } from './auth.ts';
 import type { Db } from './db.ts';
 import { dprManhole, dprPipe } from './dpr.ts';
 import { metres, nearCity, wardAt } from './geo.ts';
-import { can, codeOf, midpoint, parse, refresh, type Q } from './works.ts';
+import { can, codeOf, inArea, midpoint, parse, refresh, type Q } from './works.ts';
+import { has } from './perms.ts';
 
-const canDraw = (u: SessionUser, at: { ward: number; admin_zone: string }) => ROLE_RANK[u.role] >= 3 && can(u, at).update;
+const canDraw = (u: SessionUser, at: { ward: number; admin_zone: string }) => has(u, 'stretch.create') && inArea(u, at);
 const DRAW_ROLES = 'Only an AEE, DEE or the Commissioner of the area can draw or make work stretches.';
 const LIVE = 'deleted_at IS NULL AND NOT hidden';
 

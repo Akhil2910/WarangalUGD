@@ -13,6 +13,7 @@ import { ROLE_RANK } from 'shared';
 import { STATE_DIR } from './config.ts';
 import { HttpError } from './auth.ts';
 import type { Db } from './db.ts';
+import { has } from './perms.ts';
 
 export const FILES_DIR = path.join(STATE_DIR, 'files');
 const LIMIT = { photo: 3 * 1024 * 1024, document: 10 * 1024 * 1024 };
@@ -41,7 +42,7 @@ export function registerFiles(app: FastifyInstance, db: Db) {
   });
   app.post('/api/files', { bodyLimit: 15 * 1024 * 1024 }, async (req) => {
     const u = req.user!;
-    if (ROLE_RANK[u.role] < 1) throw new HttpError(403, 'Your role cannot add files.');
+    if (!has(u, 'files.upload')) throw new HttpError(403, 'Your role cannot add files.');
     const p = body.safeParse(req.body);
     if (!p.success) throw new HttpError(400, 'The file could not be read.');
     return { id: await storeFile(db, p.data, u.id, false) };

@@ -6,6 +6,7 @@ import {
 import { api } from '../api.ts';
 import { fmtDate, fmtTime } from './util.tsx';
 import { ProjectCompliance } from './ProjectCompliance.tsx';
+import { allowed } from '../perm.ts';
 
 interface RecRow {
   id: number; stretch_code: string; ward: number; admin_zone: string; item_key: string; item_name: string; category: string; mandatory: boolean;
@@ -28,7 +29,7 @@ export function CompliancePage({ zones, onOpen, isCommissioner, refreshKey, onCh
           <button className={level === 'stretches' ? 'on' : ''} onClick={() => setLevel('stretches')}>Work stretches</button>
         </div>
       </div>
-      {level === 'project' ? <ProjectCompliance role={role} isCommissioner={isCommissioner} focus={focus} onChanged={onChanged} refreshKey={refreshKey} /> : <>
+      {level === 'project' ? <ProjectCompliance role={role} isCommissioner={allowed('project.settings')} focus={focus} onChanged={onChanged} refreshKey={refreshKey} /> : <>
       <nav className="tabs inline">
         <button className={view === 'records' ? 'on' : ''} onClick={() => setView('records')}>Records and verification</button>
         <button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>Compliance list (stage-wise)</button>

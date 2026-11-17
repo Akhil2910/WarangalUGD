@@ -17,8 +17,9 @@ import {
 import { HttpError, type SessionUser } from './auth.ts';
 import type { Db } from './db.ts';
 import { checkFiles, gpsSchema, storeFile } from './files.ts';
-import { can, codeOf, iso, midpoint, parse, type Q } from './works.ts';
+import { can, codeOf, inArea, iso, midpoint, parse, type Q } from './works.ts';
 import { reportIssue } from './issues.ts';
+import { has, ulbOf } from './perms.ts';
 
 // ---------- limits for the public form (per address, in memory) ----------
 const hits = new Map<string, number[]>();
@@ -87,7 +88,7 @@ export function registerGrievances(app: FastifyInstance, db: Db) {
   app.get<{ Params: { token: string } }>('/api/public/w/:token', async (req) => {
     limit(req, 'view', 120, 10);
     const s = await byToken(req.params.token);
-    return { code: s.code, name: s.road_name, ward: s.ward, zone: s.admin_zone, stage: stageLabel(s.stage), length_m: Math.round(s.length_m), categories: GRIEVANCE_CATEGORIES, due_days: GRIEVANCE_DUE_DAYS };
+    return { code: s.code, name: s.road_name, ward: s.ward, zone: s.admin_zone, stage: stageLabel(s.stage), length_m: Math.round(s.length_m), categories: GRIEVANCE_CATEGORIES, due_days: (await ulbOf(q)).settings.grievance_due_days };
   });
 
   const photoBody = z.object({ name: z.string().max(200).default(''), mime: z.string().max(60), data: z.string().min(10), token: z.string().max(24) });
@@ -117,7 +118,7 @@ export function registerGrievances(app: FastifyInstance, db: Db) {
     const [lon, lat] = b.gps ? [b.gps.lon, b.gps.lat] : midpoint(s.geom);
     const out = await db.tx(async (t) => {
       const number = await nextNumber(t);
-      const due = addDays(indiaDate(), GRIEVANCE_DUE_DAYS);
+      const due = addDays(indiaDate(), (await ulbOf(t)).settings.grievance_due_days);
       const aee = await aeeFor(t, s.ward, s.admin_zone);
       const r = await t<{ id: string }>(
         `INSERT INTO grievances (number, stretch_code, lon, lat, ward, admin_zone, category, description, photos, name, mobile, house_no, language, consent, status, assignee, due_date, client_ip)
@@ -150,10 +151,10 @@ export function registerGrievances(app: FastifyInstance, db: Db) {
 
   // ---------------- staff ----------------
   const staffOnly = (u: SessionUser) => {
-    if (NO_CITIZEN_DATA.includes(u.role)) throw new HttpError(403, "Grievances hold citizens' personal details; your role does not see them.");
+    if (!has(u, 'grievance.view')) throw new HttpError(403, "Grievances hold citizens' personal details; your role does not see them.");
     return u;
   };
-  const seeMobile = (u: SessionUser) => ROLE_RANK[u.role] >= 3;
+  const seeMobile = (u: SessionUser) => has(u, 'grievance.mobile');
   const shape = (u: SessionUser, r: Record<string, unknown>) => ({
     ...r, id: Number(r.id), created_at: iso(r.created_at), updated_at: iso(r.updated_at), resolved_at: iso(r.resolved_at),
     due_date: r.due_date ? String(iso(r.due_date)).slice(0, 10) : null,
@@ -203,7 +204,7 @@ export function registerGrievances(app: FastifyInstance, db: Db) {
     const g = await load(q, req.params.number);
     const row = (await q<Record<string, unknown>>(`SELECT ${COLS} FROM ${FROM} WHERE g.id = $1`, [g.id]))[0];
     const ev = await q<Record<string, unknown>>(`SELECT e.*, u.name AS by_name FROM grievance_events e LEFT JOIN users u ON u.id = e.by_user WHERE e.grievance_id = $1 ORDER BY e.at`, [g.id]);
-    const c = can(u, area(g));
+    const c = { resolve_issue: has(u, 'grievance.act') && inArea(u, area(g)), assign_issue: has(u, 'grievance.assign') && inArea(u, area(g)) };
     return {
       grievance: shape(u, row), events: ev.map((e) => ({ ...e, id: Number(e.id), at: iso(e.at) })),
       can: { act: c.resolve_issue, assign: c.assign_issue },
@@ -214,7 +215,7 @@ export function registerGrievances(app: FastifyInstance, db: Db) {
     const u = staffOnly(req.user!);
     await db.tx(async (t) => {
       const g = await load(t, req.params.number, true);
-      const c = can(u, area(g));
+      const c = { resolve_issue: has(u, 'grievance.act') && inArea(u, area(g)), assign_issue: has(u, 'grievance.assign') && inArea(u, area(g)) };
       if (who === 'act' && !c.resolve_issue) throw new HttpError(403, 'Only the AEE or DEE of the area, or the Commissioner, can act on grievances.');
       if (who === 'assign' && !c.assign_issue) throw new HttpError(403, 'Only the DEE of the area or the Commissioner can reassign grievances.');
       await fn(t, g, u);

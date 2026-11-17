@@ -7,6 +7,7 @@ import { CUTTING, ROAD_TYPES, normaliseStatus, stepGuarded, validateStatus, type
 import { api, ApiError } from '../api.ts';
 import { Icon } from '../ui.tsx';
 import { Modal } from './Modal.tsx';
+import { allowed } from '../perm.ts';
 import type { Card } from './StretchCard.tsx';
 import { fmtDate, fmtTime, GpsBadge, uploadFile, useGps, type Uploaded } from './util.tsx';
 
@@ -80,7 +81,7 @@ export function nextStep(card: Card, me: { id: string; role: string }) {
   const s = card.stretch;
   if ((card.project_blocks?.length ?? 0) > 0 && card.can.update)
     return { tone: 'bad', title: 'Work cannot start yet', detail: card.project_blocks!.map((m) => m.replace(/^Project: /, '')).join(' '), action: '', go: null as Tab | null, focus: '' };
-  const waiting = card.compliance.records.filter((r) => r.verification === 'waiting' && (r.recorded_by !== me.id || me.role === 'commissioner'));
+  const waiting = card.compliance.records.filter((r) => r.verification === 'waiting' && (r.recorded_by !== me.id || allowed('compliance.verify_own')));
   if (card.can.verify && waiting.length)
     return { tone: 'wait', title: `Verify ${waiting.length} compliance record${waiting.length === 1 ? '' : 's'}`, detail: 'Recorded by field staff, waiting for you', action: 'Verify', go: 'compliance' as Tab, focus: waiting[0].item_key };
   if (s.approval === 'pending' && card.can.approve)
@@ -197,7 +198,7 @@ export function QuickUpdate({ card, onSaved, onFull, onRecord, isCommissioner }:
               {card.can.record_compliance && <button className="btn primary" onClick={() => onRecord(i.item.key)}>Record now</button>}
             </div>
           ))}
-          {isCommissioner && <small className="muted">As Commissioner you can still save with a reason: Edit full status.</small>}
+          {isCommissioner && <small className="muted">You can still save with a reason: Edit full status.</small>}
         </div>
       )}
       {changed && check.errors.length > 0 && <p className="error small">{check.errors.join(' ')}</p>}

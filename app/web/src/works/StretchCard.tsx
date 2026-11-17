@@ -14,6 +14,7 @@ import { ReportIssueModal } from './ReportIssue.tsx';
 import { QrBoard } from './QrBoard.tsx';
 import { DetailsPanel, Figures, MoreMenu, NameEdit, nextStep, PhotosModal, QuickUpdate, StageTrack } from './CardParts.tsx';
 import { Icon } from '../ui.tsx';
+import { allowed } from '../perm.ts';
 import { ISSUE_STATUS, PHASES, ROLE_LABEL, SEVERITY_COLOR, STAGE_PHASE } from 'shared';
 
 interface Unit { unit: { id: string; label: string; design_invert?: number | null }; state: UnitState; state_label: string; due_since: string | null; overdue_since: string | null }
@@ -76,7 +77,7 @@ export function StretchCard({ code, me, onClose, onChanged, onLocate, onEditSite
   const s = card.stretch;
   const st = stageOf(s.stage);
   const th = themeOf(card.compliance.summary.theme);
-  const canDraw = ['aee', 'dee', 'commissioner', 'piu_officer'].includes(me.role) && card.can.update;
+  const canDraw = allowed('stretch.create') && card.can.update;
   const ns = nextStep(card, me);
   const openIssues = card.issues.filter((i) => i.status !== 'resolved').length;
   const bad = card.compliance.summary.overdue + card.compliance.summary.not_complied;
@@ -136,7 +137,7 @@ export function StretchCard({ code, me, onClose, onChanged, onLocate, onEditSite
             <div className="muted small">Last update: {s.updated_by_name ? `${fmtTime(s.updated_at)} by ${s.updated_by_name}` : 'none yet'}</div>
           </div>
         )}
-        {tab === 'update' && <QuickUpdate card={card} onSaved={updated} onFull={() => setTab('full')} onRecord={(k) => go('compliance', k)} isCommissioner={me.role === 'commissioner'} />}
+        {tab === 'update' && <QuickUpdate card={card} onSaved={updated} onFull={() => setTab('full')} onRecord={(k) => go('compliance', k)} isCommissioner={allowed('override')} />}
         {tab === 'full' && <><button className="link" onClick={() => setTab('update')}>‹ Back to quick update</button><StatusTab card={card} onSaved={updated} /></>}
         {tab === 'compliance' && <ComplianceTab card={card} me={me} onSaved={updated} focus={focus} />}
         {tab === 'issues' && <IssuesTab card={card} reload={() => { load(); onChanged(); }} />}

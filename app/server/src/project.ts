@@ -11,6 +11,7 @@ import {
 import { audit, HttpError, type SessionUser } from './auth.ts';
 import type { Db } from './db.ts';
 import { iso, type Q } from './works.ts';
+import { has } from './perms.ts';
 
 const ORDER: ProjectStatus[] = ['expired', 'overdue', 'rejected', 'expiring', 'due', 'waiting', 'verified', 'not_due', 'event'];
 const worst = (a: ProjectStatus[]) => (a.length ? a.reduce((x, y) => (ORDER.indexOf(y) < ORDER.indexOf(x) ? y : x)) : 'not_due');
@@ -33,8 +34,8 @@ interface Rec {
   decided_by_name: string | null; decided_at: string | null; decision_note: string; override: string;
 }
 
-export const canSubmit = (u: SessionUser) => PROJECT_SUBMIT_ROLES.includes(u.role);
-export const canVerifyRole = (u: SessionUser) => PROJECT_VERIFY_ROLES.includes(u.role);
+export const canSubmit = (u: SessionUser) => has(u, 'project.submit');
+export const canVerifyRole = (u: SessionUser) => has(u, 'project.verify');
 
 export async function projectState(q: Q, u: SessionUser | null, today = indiaDate()) {
   const [s] = await q<{ name: string; work_start: unknown; completion: unknown }>('SELECT name, work_start, completion FROM project_settings WHERE id = 1');
@@ -66,13 +67,13 @@ export async function projectState(q: Q, u: SessionUser | null, today = indiaDat
       const st = p.status;
       return {
         can_submit: canSubmit(u) && (['due', 'overdue', 'rejected', 'expired', 'expiring'].includes(st) || (it.frequency === 'event')),
-        can_verify: canVerifyRole(u) && st === 'waiting' && (p.record?.submitted_by !== u.id || u.role === 'commissioner'),
+        can_verify: canVerifyRole(u) && st === 'waiting' && (p.record?.submitted_by !== u.id || has(u, 'compliance.verify_own')),
       };
     };
     return {
       ...it, status, status_label: PROJECT_STATUS[status].label,
       periods: periods.map((p) => ({ ...p, status_label: PROJECT_STATUS[p.status].label, ...mine(p) })),
-      can_override: !!u && u.role === 'commissioner',
+      can_override: !!u && has(u, 'override'),
     };
   });
   const summary = PHASES.map((ph) => {
@@ -187,7 +188,7 @@ export function registerProject(app: FastifyInstance, db: Db) {
       const r = rows[0];
       if (!r) throw new HttpError(404, 'Record not found.');
       if (r.status !== 'submitted') throw new HttpError(409, 'This was already decided.');
-      if (r.submitted_by === u.id && u.role !== 'commissioner') throw new HttpError(403, 'You cannot verify your own submission.');
+      if (r.submitted_by === u.id && !has(u, 'compliance.verify_own')) throw new HttpError(403, 'You cannot verify your own submission.');
       const status = b.decision === 'verify' ? 'verified' : 'rejected';
       await t('UPDATE project_records SET status = $2, decided_by = $3, decided_at = now(), decision_note = $4 WHERE id = $1', [r.id, status, u.id, b.note]);
       await event(t, Number(r.id), r.item_key, r.period, status, u.id, b.note);
@@ -198,7 +199,7 @@ export function registerProject(app: FastifyInstance, db: Db) {
   const overrideBody = z.object({ period: z.string().max(40).default(''), reason: z.string().trim().min(5, 'Give the reason').max(1000) });
   app.post<{ Params: { key: string } }>('/api/project/items/:key/override', async (req) => {
     const u = req.user!;
-    if (u.role !== 'commissioner') throw new HttpError(403, 'Only the Commissioner can override.');
+    if (!has(u, 'override')) throw new HttpError(403, 'Your role cannot override.');
     const b = parse(overrideBody, req.body);
     return db.tx(async (t) => {
       const it = (await projectState(t, u)).items.find((i) => i.key === req.params.key);
@@ -216,7 +217,7 @@ export function registerProject(app: FastifyInstance, db: Db) {
   const settingsBody = z.object({ name: z.string().trim().min(3).max(120).optional(), work_start: day.nullable().optional(), completion: day.nullable().optional() });
   app.post('/api/project/settings', async (req) => {
     const u = req.user!;
-    if (u.role !== 'commissioner') throw new HttpError(403, 'Only the Commissioner changes the project dates.');
+    if (!has(u, 'project.settings')) throw new HttpError(403, 'Your role cannot change the project dates.');
     const b = parse(settingsBody, req.body);
     if (b.work_start && b.completion && b.completion < b.work_start) throw new HttpError(400, 'Completion is before the work start.');
     await q(`UPDATE project_settings SET name = COALESCE($1, name), work_start = CASE WHEN $2::boolean THEN $3::date ELSE work_start END,
@@ -231,7 +232,7 @@ export function registerProject(app: FastifyInstance, db: Db) {
   }));
   app.post('/api/project/items', async (req) => {
     const u = req.user!;
-    if (u.role !== 'commissioner') throw new HttpError(403, 'Only the Commissioner changes the compliance list.');
+    if (!has(u, 'project.settings')) throw new HttpError(403, 'Your role cannot change the project compliance list.');
     const b = parse(itemBody, req.body);
     const key = b.key ?? `${b.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 32)}_${Date.now().toString(36).slice(-4)}`;
     const exists = (await q('SELECT 1 FROM project_items WHERE key = $1', [key])).length > 0;
@@ -265,7 +266,7 @@ export function registerProject(app: FastifyInstance, db: Db) {
       }
     }
     // work-stretch compliance waiting for verification (AEE / DEE / PMU / Commissioner)
-    if ((ROLE_RANK[u.role] >= 3 && u.role !== 'piu_officer') || u.role === 'pmu_officer') {
+    if (has(u, 'compliance.verify')) {
       const [{ n }] = await q<{ n: string }>(`SELECT count(*) AS n FROM compliance_records WHERE verification = 'waiting' AND recorded_by <> $1`, [u.id]);
       if (Number(n)) tasks.push({ kind: 'stretch', tone: 'wait', title: `Verify ${n} work-stretch compliance record${Number(n) === 1 ? '' : 's'}`, detail: 'Compliance → Work stretches', due: null, link: { type: 'stretch_compliance' } });
     }

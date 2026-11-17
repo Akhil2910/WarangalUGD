@@ -64,6 +64,8 @@ const ICONS: Record<string, string> = {
   qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2M14 18h2v2M18 18h2v2',
   info: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 11v5M12 8h.1',
   check: 'M5 12l5 5 9-10',
+  admin: 'M12 3l1.6 2.6 3-.6.6 3 2.6 1.6-1.6 2.6.6 3-3 .6L12 21l-1.6-2.6-3 .6-.6-3L4.2 14l1.6-2.6-.6-3 3-.6L12 3zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
+  users: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.5a4 4 0 0 1 0 7.5M22 21v-1a6 6 0 0 0-4-5.7',
 };
 export function Icon({ name, size }: { name: keyof typeof ICONS | string; size?: number }) {
   return (

@@ -16,6 +16,8 @@ import { CompliancePage } from './works/CompliancePage.tsx';
 import { IssuesPage, type IssueRow } from './works/IssuesPage.tsx';
 import { WorkPanel, newWork, type Preview, type WorkState } from './works/WorkPanel.tsx';
 import { FontButtons, Icon } from './ui.tsx';
+import { allowed, allowedAny } from './perm.ts';
+import { AdminPage } from './works/AdminPage.tsx';
 import { MapNav, type AreaType } from './MapNav.tsx';
 import { MyTasksButton, MyTasksModal, useMyTasks, type Task } from './works/MyTasks.tsx';
 import { AreaSummary } from './works/AreaSummary.tsx';
@@ -38,7 +40,7 @@ const bboxOf = (coords: unknown): BBox => {
   walk(coords);
   return [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1])), Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))];
 };
-type Tab = 'dashboard' | 'map' | 'works' | 'issues' | 'grievances' | 'compliance' | 'utilities';
+type Tab = 'dashboard' | 'map' | 'works' | 'issues' | 'grievances' | 'compliance' | 'utilities' | 'admin';
 const TABS: [Tab, string][] = [['dashboard', 'Dashboard'], ['map', 'Map'], ['works', 'Works'], ['issues', 'Issues'], ['grievances', 'Grievances'], ['compliance', 'Compliance'], ['utilities', 'Utilities']];
 
 /** Which style settings each layer switch has. */
@@ -77,7 +79,7 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
   const [styles, setStyles] = useState<Partial<Record<StyleKey, LayerStyle>>>({});
   const [styleKeys, setStyleKeys] = useState<StyleKey[] | null>(null);
   const [reporting, setReporting] = useState<'pick' | { at: { lon: number; lat: number } | null } | null>(null);
-  const canReport = user.role !== 'viewer';
+  const canReport = allowed('issue.report');
   const [notice, setNotice] = useState('');
   useEffect(() => {
     if (!notice) return;
@@ -87,8 +89,9 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
   const boundaries = useRef<Record<string, GeoFC>>({});
   const sitePipes = useRef<Map<number, SitePipe>>(new Map());
   const dprTaken = useRef<Record<string, string>>({});
-  const canMake = ['aee', 'dee', 'commissioner', 'piu_officer'].includes(user.role);
-  const tabs = TABS.filter(([t]) => !(t === 'grievances' && NO_CITIZEN_DATA.includes(user.role as Role)));
+  const canMake = allowed('stretch.create');
+  const isAdmin = allowedAny('admin.users', 'admin.roles', 'admin.settings', 'admin.audit');
+  const tabs: [Tab, string][] = [...TABS.filter(([t]) => !(t === 'grievances' && !allowed('grievance.view'))), ...(isAdmin ? [['admin', 'Admin'] as [Tab, string]] : [])];
   const changed = useCallback(() => setRefreshKey((k) => k + 1), []);
   const clickRef = useRef<(e: MapMouseEvent) => void>(() => {});
 
@@ -568,7 +571,7 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
           <FontButtons />
           <div className="user">
             <span className="avatar" aria-hidden>{user.name.split(/\s+/).filter((w) => !/^trial$/i.test(w)).map((w) => w[0]).join('').slice(0, 2).toUpperCase()}</span>
-            <span className="who">{user.name}<small>{ROLE_LABEL[user.role as Role] ?? user.role}</small></span>
+            <span className="who">{user.name}<small>{user.role_label || (ROLE_LABEL[user.role as Role] ?? user.role)}</small></span>
             <button className="icon-btn" onClick={onSignOut} title="Sign out" aria-label="Sign out"><Icon name="logout" /></button>
           </div>
         </div>
@@ -710,8 +713,9 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
         {marking?.form && <UtilityForm layer={marking.layer} onSave={saveUtility} onCancel={() => setMarking(null)} />}
         {tab === 'dashboard' && meta && <DashboardPage zones={meta.admin_zones} onOpenStretch={setOpenCode} />}
         {tab === 'grievances' && meta && <GrievancesPage zones={meta.admin_zones} onOpenStretch={setOpenCode} onGoTo={(lon, lat) => goToPoint(lon, lat, 19)} refreshKey={refreshKey} onChanged={changed} />}
+        {tab === 'admin' && isAdmin && <AdminPage me={user} />}
         {tab === 'utilities' && (
-          <UtilitiesPage canImport={canMake} canMark={ROLE_RANK[user.role as Role] >= 2 && user.role !== 'viewer'} refreshKey={refreshKey}
+          <UtilitiesPage canImport={allowed('utility.import')} canMark={allowed('utility.mark')} refreshKey={refreshKey}
             onMark={(layer) => { setTab('map'); setUtilOn((s) => new Set([...s, layer])); setMarking({ layer, pts: [], form: false }); }} />
         )}
         {reporting && reporting !== 'pick' && (
@@ -725,10 +729,10 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
             onNew={canMake ? startWork : undefined} />
         )}
         {tab === 'issues' && meta && (
-          <IssuesPage zones={meta.admin_zones} onOpenStretch={setOpenCode} onGoTo={(lon, lat) => goToPoint(lon, lat, 19)} refreshKey={refreshKey} onChanged={changed} isCommissioner={user.role === 'commissioner'} />
+          <IssuesPage zones={meta.admin_zones} onOpenStretch={setOpenCode} onGoTo={(lon, lat) => goToPoint(lon, lat, 19)} refreshKey={refreshKey} onChanged={changed} isCommissioner={allowed('issue.delete')} />
         )}
         {tab === 'compliance' && meta && (
-          <CompliancePage zones={meta.admin_zones} onOpen={setOpenCode} isCommissioner={user.role === 'commissioner'} refreshKey={refreshKey} onChanged={changed}
+          <CompliancePage zones={meta.admin_zones} onOpen={setOpenCode} isCommissioner={allowed('compliance.list')} refreshKey={refreshKey} onChanged={changed}
             role={user.role} level={compLevel} setLevel={setCompLevel} focus={compFocus} />
         )}
         {openCode && (

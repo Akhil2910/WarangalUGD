@@ -94,6 +94,16 @@
       "areas": {
         "all": true
       }
+    },
+    {
+      "key": "trial-admin-1",
+      "email": "admin@gwmc.local",
+      "name": "Trial System Admin",
+      "designation": "System Admin (trial)",
+      "role": "system_admin",
+      "areas": {
+        "all": true
+      }
     }
   ]
 }

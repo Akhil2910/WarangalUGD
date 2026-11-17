@@ -5,7 +5,7 @@
  */
 
 export const ROLES = ['contracting_assistant', 'field_inspector', 'aee', 'dee', 'commissioner', 'viewer',
-  'contractor', 'piu_officer', 'pmu_officer', 'pgdmc_officer', 'finance'] as const;
+  'contractor', 'piu_officer', 'pmu_officer', 'pgdmc_officer', 'finance', 'system_admin', 'super_admin'] as const;
 export type Role = (typeof ROLES)[number];
 
 export const ROLE_LABEL: Record<Role, string> = {
@@ -20,6 +20,8 @@ export const ROLE_LABEL: Record<Role, string> = {
   pmu_officer: 'PMU Officer (Review & Approval)',
   pgdmc_officer: 'PGDMC Officer (Monitoring)',
   finance: 'Financial Institution (Compliance)',
+  system_admin: 'System Admin',
+  super_admin: 'State Admin (all ULBs)',
 };
 
 /** What each role does, in plain words (shown on the sign-in help and the account page). */
@@ -35,6 +37,8 @@ export const ROLE_DUTY: Record<Role, string> = {
   pmu_officer: 'Reviews, verifies compliances and approves or rejects restorations. Does not update work.',
   pgdmc_officer: 'Reviews and monitors everything; changes nothing.',
   finance: 'Tracks progress and compliance (dashboard, works, compliance). No citizen personal data.',
+  system_admin: 'Sets up and runs the system for this ULB: users, roles and permissions, settings.',
+  super_admin: 'Sets up ULBs and their System Admins across the state.',
 };
 /** Roles that verify compliances and approve restorations without doing the work themselves. */
 export const REVIEW_ROLES: readonly Role[] = ['pmu_officer'];
@@ -55,6 +59,8 @@ export const ROLE_RANK: Record<Role, number> = {
   finance: 0,
   contractor: 1,
   piu_officer: 4,
+  system_admin: 0,
+  super_admin: 0,
 };
 
 export const PASSWORD_MIN_LENGTH = 8;
@@ -80,3 +86,4 @@ export * from './compliance.ts';
 export * from './issues.ts';
 export * from './grievances.ts';
 export * from './project.ts';
+export * from './perms.ts';

@@ -20,6 +20,7 @@ import { audit, HttpError, type SessionUser } from './auth.ts';
 import type { Db } from './db.ts';
 import { checkFiles, gpsSchema } from './files.ts';
 import { issuesForCard, syncIssues } from './issues.ts';
+import { has } from './perms.ts';
 
 export type Q = Db['query'];
 
@@ -61,23 +62,23 @@ export async function loadStretch(q: Q, code: string, lock = false): Promise<Str
   return rows[0];
 }
 
-function inArea(u: SessionUser, st: { admin_zone: string; ward: number }) {
+export function inArea(u: SessionUser, st: { admin_zone: string; ward: number }) {
   if (u.role === 'commissioner') return true;
   const a = u.areas as { all?: boolean; admin_zones?: string[]; wards?: (number | string)[] };
   if (a.all) return true;
   return (a.admin_zones ?? []).includes(st.admin_zone) || (a.wards ?? []).map(Number).includes(st.ward);
 }
 export const can = (u: SessionUser, st: { admin_zone: string; ward: number }) => ({
-  update: ROLE_RANK[u.role] >= 1 && u.role !== 'viewer' && inArea(u, st),
-  record_compliance: ROLE_RANK[u.role] >= 1 && u.role !== 'viewer' && inArea(u, st),
+  update: has(u, 'status.update') && inArea(u, st),
+  record_compliance: has(u, 'compliance.record') && inArea(u, st),
   // PIU officers do the work, so PMU (or the AEE/DEE/Commissioner) verifies and approves it
-  verify: ((ROLE_RANK[u.role] >= 3 && u.role !== 'piu_officer') || u.role === 'pmu_officer') && inArea(u, st),
-  approve: ((ROLE_RANK[u.role] >= 4 && u.role !== 'piu_officer') || u.role === 'pmu_officer') && inArea(u, st),
-  override: u.role === 'commissioner',
-  report_issue: ROLE_RANK[u.role] >= 1 && u.role !== 'viewer' && inArea(u, st),
-  resolve_issue: ROLE_RANK[u.role] >= 3 && inArea(u, st),
-  assign_issue: ROLE_RANK[u.role] >= 4 && inArea(u, st),
-  delete_issue: u.role === 'commissioner',
+  verify: has(u, 'compliance.verify') && inArea(u, st),
+  approve: has(u, 'restoration.approve') && inArea(u, st),
+  override: has(u, 'override'),
+  report_issue: has(u, 'issue.report') && inArea(u, st),
+  resolve_issue: has(u, 'issue.resolve') && inArea(u, st),
+  assign_issue: has(u, 'issue.assign') && inArea(u, st),
+  delete_issue: has(u, 'issue.delete'),
 });
 
 /** Distance (m) from a point to the stretch line. */
@@ -254,8 +255,8 @@ export async function saveStatus(t: Q, u: SessionUser, code: string, raw: WorkSt
   const blocks = gates.filter((g) => g.gate === 'block');
   let override = '';
   if (blocks.length) {
-    if (!(u.role === 'commissioner' && o.override_reason?.trim()))
-      throw new HttpError(409, `Not saved. First record these on this work stretch (Compliance tab): ${blocks.map((g) => g.message).join(' ')}${u.role === 'commissioner' ? ' (As Commissioner you may override with a reason.)' : ''}`, 'GATE_BLOCK');
+    if (!(has(u, 'override') && o.override_reason?.trim()))
+      throw new HttpError(409, `Not saved. First record these on this work stretch (Compliance tab): ${blocks.map((g) => g.message).join(' ')}${has(u, 'override') ? ' (You may override with a reason.)' : ''}`, 'GATE_BLOCK');
     override = o.override_reason!.trim();
   }
   const warnings = [...check.warnings, ...gates.filter((g) => g.gate === 'warn').map((g) => `Compliance: ${g.message}`), ...(override ? blocks.map((g) => `Overridden: ${g.message}`) : [])];
@@ -341,7 +342,7 @@ export async function verifyRecord(t: Q, u: SessionUser, id: number, decision: '
   const r = rows[0];
   const st = await loadStretch(t, r.stretch_code);
   if (!can(u, st).verify) throw new HttpError(403, 'Only the AEE or DEE of the area, the PMU officer or the Commissioner can verify compliances.');
-  if (r.recorded_by === u.id && u.role !== 'commissioner') throw new HttpError(403, 'You cannot verify your own record. Another officer must verify it.');
+  if (r.recorded_by === u.id && !has(u, 'compliance.verify_own')) throw new HttpError(403, 'You cannot verify your own record. Another officer must verify it.');
   if (r.verification !== 'waiting') throw new HttpError(400, 'This record has already been verified or rejected.');
   if (decision === 'reject' && !note.trim()) throw new HttpError(400, 'Give the reason for rejecting.');
   await t(`UPDATE compliance_records SET verification = $2, verified_by = $3, verified_at = now(), verify_note = $4 WHERE id = $1`,
@@ -416,7 +417,7 @@ export function registerWorks(app: FastifyInstance, db: Db) {
         const gates = gatesHit(await currentItems(t), st, st.status, st.status, st.milestones ?? {}, await recordsFor(t, code), now, true);
         const blocks = gates.filter((g) => g.gate === 'block');
         if (blocks.length) {
-          if (!(u.role === 'commissioner' && b.override_reason?.trim())) throw new HttpError(409, `Not approved. Complete these compliances first: ${blocks.map((g) => g.message).join(' ')}`, 'GATE_BLOCK');
+          if (!(has(u, 'override') && b.override_reason?.trim())) throw new HttpError(409, `Not approved. Complete these compliances first: ${blocks.map((g) => g.message).join(' ')}`, 'GATE_BLOCK');
           override = b.override_reason!.trim();
         }
         warnings = gates.filter((g) => g.gate === 'warn').map((g) => `Compliance: ${g.message}`);
@@ -543,7 +544,7 @@ export function registerWorks(app: FastifyInstance, db: Db) {
       rows: rows.map(({ total: _t, ...r }) => ({
         ...r, id: Number(r.id), recorded_at: iso(r.recorded_at), verified_at: iso(r.verified_at),
         value_date: r.value_date ? iso(r.value_date)!.slice(0, 10) : null,
-        can_verify: r.verification === 'waiting' && can(u, { admin_zone: r.admin_zone as string, ward: r.ward as number }).verify && (r.recorded_by !== u.id || u.role === 'commissioner'),
+        can_verify: r.verification === 'waiting' && can(u, { admin_zone: r.admin_zone as string, ward: r.ward as number }).verify && (r.recorded_by !== u.id || has(u, 'compliance.verify_own')),
       })),
     };
   });
@@ -558,7 +559,7 @@ export function registerWorks(app: FastifyInstance, db: Db) {
 
   app.post('/api/compliance/items', async (req) => {
     const u = req.user!;
-    if (u.role !== 'commissioner') throw new HttpError(403, 'Only the Commissioner can change the compliance list.');
+    if (!has(u, 'compliance.list')) throw new HttpError(403, 'Your role cannot change the compliance list.');
     const b = parse(itemBody, req.body);
     if (b.pass_rule && !b.evidence.includes('value')) throw new HttpError(400, 'A pass rule needs "Measured value" as evidence.');
     const out = await db.tx(async (t) => {
@@ -581,7 +582,7 @@ export function registerWorks(app: FastifyInstance, db: Db) {
 
   app.post<{ Params: { key: string } }>('/api/compliance/items/:key/retire', async (req) => {
     const u = req.user!;
-    if (u.role !== 'commissioner') throw new HttpError(403, 'Only the Commissioner can change the compliance list.');
+    if (!has(u, 'compliance.list')) throw new HttpError(403, 'Your role cannot change the compliance list.');
     const b = parse(z.object({ retire: z.boolean() }), req.body);
     const rows = await q('UPDATE compliance_items SET retired_at = $2 WHERE key = $1 AND is_current RETURNING id', [req.params.key, b.retire ? new Date().toISOString() : null]);
     if (!rows.length) throw new HttpError(404, 'Item not found.');

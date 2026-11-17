@@ -5,6 +5,7 @@ import {
 } from 'shared';
 import { api } from '../api.ts';
 import { Modal } from './Modal.tsx';
+import { allowed } from '../perm.ts';
 import { fmtDate, fmtTime, uploadFile, type Uploaded } from './util.tsx';
 
 interface Rec {
@@ -176,7 +177,7 @@ function Detail({ it, focusPeriod, onDone, role }: { it: Item; focusPeriod?: str
     </div>
   );
 }
-const canSubmitRole = (role: string) => (PROJECT_SUBMIT_ROLES as readonly string[]).includes(role);
+const canSubmitRole = (_role: string) => allowed('project.submit');
 
 function Decide({ id, onDone }: { id: number; onDone: () => void }) {
   const [note, setNote] = useState('');

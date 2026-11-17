@@ -17,6 +17,7 @@ import { registerDashboard } from './dashboard.ts';
 import type { Db } from './db.ts';
 import { registerCompression } from './compress.ts';
 import { loadDefaultProjectItems, registerProject } from './project.ts';
+import { registerAdmin } from './admin.ts';
 
 export async function buildApp(db: Db, opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({
@@ -74,6 +75,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}): Promise
   registerUtilities(app, db);
   registerDashboard(app, db);
   registerProject(app, db);
+  registerAdmin(app, db);
   await loadDefaultProjectItems(db);
   app.get('/api/health', async () => {
     await db.query('SELECT 1');

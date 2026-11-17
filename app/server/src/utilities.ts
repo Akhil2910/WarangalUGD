@@ -10,7 +10,8 @@ import { ROLE_RANK, UTILITY_CONDITIONS, UTILITY_LAYERS, utilityLayer } from 'sha
 import { HttpError, type SessionUser } from './auth.ts';
 import type { Db } from './db.ts';
 import { nearCity, wardAt } from './geo.ts';
-import { can, iso, parse, type Q } from './works.ts';
+import { can, inArea, iso, parse, type Q } from './works.ts';
+import { has } from './perms.ts';
 
 const layerKeys = UTILITY_LAYERS.map((l) => l.key) as [string, ...string[]];
 const pos = z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)]);
@@ -33,7 +34,7 @@ const split = (p: Record<string, unknown>) => {
 };
 const shown = (p: Record<string, unknown>) => split(p).keep;
 
-const canMark = (u: SessionUser, at: { ward: number; admin_zone: string }) => ROLE_RANK[u.role] >= 2 && can(u, at).update;
+const canMark = (u: SessionUser, at: { ward: number; admin_zone: string }) => has(u, 'utility.mark') && inArea(u, at);
 const firstPoint = (g: z.infer<typeof geomSchema>) => (g.type === 'Point' ? g.coordinates : g.coordinates[0]);
 
 export function registerUtilities(app: FastifyInstance, db: Db) {
@@ -91,7 +92,7 @@ export function registerUtilities(app: FastifyInstance, db: Db) {
   // a department's file (GeoJSON): every feature of the right shape goes into one layer; the rest are counted and skipped
   app.post('/api/utilities/import', { bodyLimit: 30 * 1024 * 1024 }, async (req) => {
     const u = req.user!;
-    if (ROLE_RANK[u.role] < 3) throw new HttpError(403, 'Only an AEE, DEE or the Commissioner can import utility files.');
+    if (!has(u, 'utility.import')) throw new HttpError(403, 'Your role cannot import utility files.');
     const b = parse(z.object({ layer: z.enum(layerKeys), geojson: z.object({ type: z.literal('FeatureCollection'), features: z.array(z.unknown()).max(50000) }), source_name: z.string().max(200).default('') }), req.body);
     const def = utilityLayer(b.layer)!;
     const importId = randomUUID();

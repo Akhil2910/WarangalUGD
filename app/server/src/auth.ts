@@ -16,6 +16,8 @@ import { z } from 'zod';
 import { CSRF_HEADER, PASSWORD_MIN_LENGTH, ROLES, type Role } from 'shared';
 import { COOKIE_SECURE, SEED_FILE, SESSION_DAYS, SESSION_SECRET, STATE_DIR } from './config.ts';
 import type { Db } from './db.ts';
+import { roleEntry } from './perms.ts';
+import type { Action } from 'shared';
 
 export const COOKIE = 'wgl_session';
 const MAX_FAILS = 8;
@@ -30,6 +32,10 @@ export interface SessionUser {
   supervisor: boolean;
   areas: Record<string, unknown>;
   must_change_password: boolean;
+  ulb_id: number;
+  role_key: string;
+  role_label: string;
+  perms: Action[];
 }
 
 declare module 'fastify' {
@@ -111,14 +117,17 @@ async function loadUser(db: Db, req: FastifyRequest): Promise<SessionUser | unde
   }
   if (!/^[0-9a-f-]{36}$/i.test(claims.sub)) return undefined;
   const rows = await db.query<SessionUser & { active: boolean; session_version: number }>(
-    `SELECT id, email, name, designation, role, supervisor, areas, must_change_password, active, session_version
+    `SELECT id, email, name, designation, role, supervisor, areas, must_change_password, active, session_version, ulb_id, role_key
      FROM users WHERE id = $1`,
     [claims.sub],
   );
   const u = rows[0];
   if (!u || !u.active || u.session_version !== claims.sv) return undefined;
   const { active: _a, session_version: _s, ...user } = u;
-  return user;
+  const ulb = Number(user.ulb_id ?? 1);
+  const key = user.role_key || user.role;
+  const e = await roleEntry(db.query.bind(db), ulb, key, user.role);
+  return { ...user, ulb_id: ulb, role_key: key, role_label: e.label, perms: e.grants };
 }
 
 // /api/auth/me answers {user: undefined} when signed out (no error), so the app can show the sign-in page.

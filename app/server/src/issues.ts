@@ -21,6 +21,7 @@ import { checkFiles, FILES_DIR, gpsSchema } from './files.ts';
 import { nextNo } from './site.ts';
 import { nearCity, wardAt } from './geo.ts';
 import { can, card, codeOf, distanceToLine, loadStretch, midpoint, parse, refresh, sweep, type Q, type StretchRow } from './works.ts';
+import { has, ulbOf } from './perms.ts';
 
 interface IssueRow {
   id: number; code: string; kind: string; source: string; item_key: string; stretch_code: string | null; count: number;
@@ -42,7 +43,7 @@ async function event(q: Q, issueId: number, by: string | null, action: string, n
 async function createIssue(q: Q, st: StretchRow | null, f: { kind: string; source: string; item_key?: string; count: number; severity: Severity; title: string;
   remark?: string; photos?: string[]; lon?: number; lat?: number; by: string | null; note: string; ward?: number; admin_zone?: string }) {
   const [lon, lat] = f.lon !== undefined && f.lat !== undefined ? [f.lon, f.lat] : midpoint(st!.geom);
-  const due = addDays(indiaDate(), DUE_DAYS[f.severity]);
+  const due = addDays(indiaDate(), (await ulbOf(q)).settings.issue_due_days[f.severity] ?? DUE_DAYS[f.severity]);
   const rows = await q<{ id: string }>(
     `INSERT INTO issues (code, kind, source, item_key, stretch_code, lon, lat, ward, admin_zone, package, count, severity, title, remark, photos, due_date, created_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`,
@@ -326,7 +327,7 @@ export function registerIssues(app: FastifyInstance, db: Db) {
   const deleteBody = z.object({ codes: z.array(z.string()).min(1).max(500), reason: z.string().trim().min(5, 'Give the reason for deleting.').max(2000) });
   app.post('/api/issues/delete', async (req) => {
     const u = req.user!;
-    if (u.role !== 'commissioner') throw new HttpError(403, 'Only the Commissioner can delete issues permanently.');
+    if (!has(u, 'issue.delete')) throw new HttpError(403, 'Your role cannot delete issues.');
     const b = parse(deleteBody, req.body);
     const removedFiles: string[] = [];
     const deleted = await db.tx(async (t) => {

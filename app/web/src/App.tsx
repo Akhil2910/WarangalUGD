@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { PASSWORD_MIN_LENGTH } from 'shared';
 import { api, type User } from './api.ts';
 import { MapView } from './MapView.tsx';
+import { setPerms } from './perm.ts';
 import { useFontSize } from './ui.tsx';
 import { PublicGrievance, PublicStatus } from './Public.tsx';
 
@@ -17,7 +18,7 @@ function StaffApp() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const refresh = () =>
     api<{ user?: User }>('/api/auth/me')
-      .then((r) => setUser(r.user ?? null))
+      .then((r) => { setPerms(r.user?.perms); setUser(r.user ?? null); })
       .catch(() => setUser(null));
   useEffect(() => {
     refresh();

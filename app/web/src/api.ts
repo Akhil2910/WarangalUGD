@@ -7,6 +7,10 @@ export interface User {
   designation: string;
   role: string;
   must_change_password: boolean;
+  ulb_id: number;
+  role_key: string;
+  role_label: string;
+  perms: string[];
 }
 
 export class ApiError extends Error {
