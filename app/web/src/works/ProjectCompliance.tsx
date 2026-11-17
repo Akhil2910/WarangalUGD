@@ -196,19 +196,32 @@ function Decide({ id, onDone }: { id: number; onDone: () => void }) {
 
 function SubmitForm({ it, period, onCancel, onDone }: { it: Item; period: string; onCancel: () => void; onDone: () => void }) {
   const [f, setF] = useState({ reference: '', doc_date: '', valid_from: '', valid_to: '', note: '' });
-  const [files, setFiles] = useState<Uploaded[]>([]);
+  const [files, setFiles] = useState<{ name: string; size: number; state: 'uploading' | 'ok' | 'failed'; reason?: string; up?: Uploaded }[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const LIMIT_MB = 10;
+  const mb = (n: number) => `${(n / 1024 / 1024).toFixed(1)} MB`;
   const add = async (list: FileList | null) => {
     if (!list) return;
-    setBusy(true); setMsg('');
-    try { for (const file of Array.from(list)) files.push(await uploadFile(file, file.type.startsWith('image/') && it.evidence.includes('photo') && !it.evidence.includes('document') ? 'photo' : 'document', null)); setFiles([...files]); }
-    catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
+    for (const file of Array.from(list)) {
+      const isImg = file.type.startsWith('image/');
+      if (!isImg && file.type !== 'application/pdf') { setFiles((x) => [...x, { name: file.name, size: file.size, state: 'failed', reason: 'Only PDF files or photos can be attached.' }]); continue; }
+      if (!isImg && file.size > LIMIT_MB * 1024 * 1024) { setFiles((x) => [...x, { name: file.name, size: file.size, state: 'failed', reason: `Too large (${mb(file.size)}); the limit is ${LIMIT_MB} MB. Save a smaller PDF (fewer pages or lower quality) and attach it again.` }]); continue; }
+      setFiles((x) => [...x, { name: file.name, size: file.size, state: 'uploading' }]);
+      try {
+        const up = await uploadFile(file, isImg && it.evidence.includes('photo') && !it.evidence.includes('document') ? 'photo' : 'document', null);
+        setFiles((x) => x.map((y) => (y.name === file.name && y.state === 'uploading' ? { ...y, state: 'ok', up } : y)));
+      } catch (e) {
+        setFiles((x) => x.map((y) => (y.name === file.name && y.state === 'uploading' ? { ...y, state: 'failed', reason: (e as Error).message } : y)));
+      }
+    }
   };
+  const uploading = files.some((x) => x.state === 'uploading');
+  const attached = files.filter((x) => x.state === 'ok' && x.up).map((x) => x.up!);
   const send = async () => {
     setBusy(true); setMsg('');
     try {
-      await api(`/api/project/items/${it.key}/submit`, { period, reference: f.reference, doc_date: f.doc_date || null, valid_from: f.valid_from || null, valid_to: f.valid_to || null, note: f.note, files });
+      await api(`/api/project/items/${it.key}/submit`, { period, reference: f.reference, doc_date: f.doc_date || null, valid_from: f.valid_from || null, valid_to: f.valid_to || null, note: f.note, files: attached });
       onDone();
     } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   };
@@ -216,10 +229,24 @@ function SubmitForm({ it, period, onCancel, onDone }: { it: Item; period: string
   return (
     <div className="pc-form">
       {needFile && (
-        <label className="field">{it.evidence.includes('document') ? 'Document (PDF or photo of it)' : 'Photo'}
-          <input type="file" multiple accept="application/pdf,image/*" onChange={(e) => add(e.target.files)} />
-          {files.length > 0 && <span className="small">{files.map((x) => x.name).join(', ')}</span>}
-        </label>
+        <div className="field">
+          <span>{it.evidence.includes('document') ? 'Document (PDF or photo of it)' : 'Photo'} <span className="muted small">· PDF up to {LIMIT_MB} MB; photos are made smaller on their own</span></span>
+          <label className="file-pick">
+            <input type="file" multiple accept="application/pdf,image/*" onChange={(e) => { void add(e.target.files); e.target.value = ''; }} />
+            <span className="btn">Choose file…</span>
+          </label>
+          {files.length > 0 && (
+            <ul className="file-list">
+              {files.map((x, i) => (
+                <li key={i} className={x.state}>
+                  <span className="grow"><b>{x.name}</b> <span className="muted small">{mb(x.size)}</span>{x.reason && <div className="error small">{x.reason}</div>}</span>
+                  <span className="small">{x.state === 'uploading' ? 'Uploading…' : x.state === 'ok' ? 'Attached ✓' : 'Not attached'}</span>
+                  {x.state !== 'uploading' && <button className="link" onClick={() => setFiles(files.filter((_, j) => j !== i))}>Remove</button>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
       <div className="two">
         {it.evidence.includes('reference') && <label className="field">Reference no.<input value={f.reference} onChange={(e) => setF({ ...f, reference: e.target.value })} /></label>}
@@ -229,7 +256,7 @@ function SubmitForm({ it, period, onCancel, onDone }: { it: Item; period: string
       </div>
       <label className="field">Remark<input value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></label>
       {msg && <p className="error">{msg}</p>}
-      <div className="row-btns"><button className="btn" onClick={onCancel}>Cancel</button><button className="btn primary" disabled={busy} onClick={send}>{busy ? 'Please wait…' : 'Submit for verification'}</button></div>
+      <div className="row-btns"><button className="btn" onClick={onCancel}>Cancel</button><button className="btn primary" disabled={busy || uploading} onClick={send}>{busy ? 'Please wait…' : uploading ? 'Waiting for the upload…' : 'Submit for verification'}</button></div>
     </div>
   );
 }
