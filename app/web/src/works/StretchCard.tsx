@@ -16,6 +16,7 @@ import { DetailsPanel, Figures, MoreMenu, NameEdit, nextStep, PhotosModal, Quick
 import { Icon } from '../ui.tsx';
 import { allowed } from '../perm.ts';
 import { ISSUE_STATUS, PHASES, ROLE_LABEL, SEVERITY_COLOR, STAGE_PHASE } from 'shared';
+import { DailyTab } from './Daily.tsx';
 
 interface Unit { unit: { id: string; label: string; design_invert?: number | null }; state: UnitState; state_label: string; due_since: string | null; overdue_since: string | null }
 interface ItemView { item: ComplianceItem; applies: boolean; state: UnitState; state_label: string; progress: string; units: Unit[] }
@@ -55,7 +56,7 @@ export function StretchCard({ code, me, onClose, onChanged, onLocate, onEditSite
 }) {
   const wrap = (inner: React.ReactNode) => <div className="modal" role="dialog" aria-modal="true"><aside className="drawer card-modal">{inner}</aside></div>;
   const [card, setCard] = useState<Card | null>(null);
-  const [tab, setTab] = useState<'overview' | 'update' | 'full' | 'compliance' | 'issues' | 'history'>('overview');
+  const [tab, setTab] = useState<'overview' | 'update' | 'full' | 'daily' | 'compliance' | 'issues' | 'history'>('overview');
   const [focus, setFocus] = useState('');
   const [qr, setQr] = useState(false);
   const [photos, setPhotos] = useState(false);
@@ -84,6 +85,7 @@ export function StretchCard({ code, me, onClose, onChanged, onLocate, onEditSite
   const tabs: [typeof tab, string][] = [
     ['overview', 'Overview'],
     ...(card.can.update ? [['update', 'Update'] as [typeof tab, string]] : []),
+    ['daily', 'Daily log'],
     ['compliance', `Compliance${bad ? ` (${bad}!)` : ''}`],
     ['issues', `Issues${openIssues ? ` (${openIssues})` : ''}`],
     ['history', 'History'],
@@ -139,6 +141,7 @@ export function StretchCard({ code, me, onClose, onChanged, onLocate, onEditSite
         )}
         {tab === 'update' && <QuickUpdate card={card} onSaved={updated} onFull={() => setTab('full')} onRecord={(k) => go('compliance', k)} isCommissioner={allowed('override')} />}
         {tab === 'full' && <><button className="link" onClick={() => setTab('update')}>‹ Back to quick update</button><StatusTab card={card} onSaved={updated} /></>}
+        {tab === 'daily' && <DailyTab code={code} meId={me.id} onChanged={() => { load(); onChanged(); }} />}
         {tab === 'compliance' && <ComplianceTab card={card} me={me} onSaved={updated} focus={focus} />}
         {tab === 'issues' && <IssuesTab card={card} reload={() => { load(); onChanged(); }} />}
         {tab === 'history' && <HistoryTab code={code} version={s.version} />}

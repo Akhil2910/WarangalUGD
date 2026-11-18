@@ -19,6 +19,7 @@ import { registerCompression } from './compress.ts';
 import { loadDefaultProjectItems, registerProject } from './project.ts';
 import { registerAdmin } from './admin.ts';
 import { registerSchedule } from './schedule.ts';
+import { registerDaily } from './daily.ts';
 
 export async function buildApp(db: Db, opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({
@@ -78,6 +79,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean } = {}): Promise
   registerProject(app, db);
   registerAdmin(app, db);
   registerSchedule(app, db);
+  registerDaily(app, db);
   await loadDefaultProjectItems(db);
   app.get('/api/health', async () => {
     await db.query('SELECT 1');

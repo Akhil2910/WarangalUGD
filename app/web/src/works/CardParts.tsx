@@ -210,7 +210,7 @@ export function QuickUpdate({ card, onSaved, onFull, onRecord, isCommissioner }:
   );
 }
 
-function QuickPhotos({ photos, setPhotos, gps, gpsState }: { photos: Uploaded[]; setPhotos: (p: Uploaded[]) => void; gps: { lat: number; lon: number; accuracy_m: number } | null; gpsState: string }) {
+export function QuickPhotos({ photos, setPhotos, gps, gpsState }: { photos: Uploaded[]; setPhotos: (p: Uploaded[]) => void; gps: { lat: number; lon: number; accuracy_m: number } | null; gpsState: string }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   return (

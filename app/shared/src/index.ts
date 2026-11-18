@@ -87,3 +87,4 @@ export * from './issues.ts';
 export * from './grievances.ts';
 export * from './project.ts';
 export * from './perms.ts';
+export * from './daily.ts';

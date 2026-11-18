@@ -22,6 +22,9 @@ export const ACTIONS = [
   // project definition and timeline
   { key: 'project.plan', group: 'Project', label: 'Define the project and its timeline (packages, Gantt, monthly targets, time extensions)' },
   { key: 'project.progress', group: 'Project', label: 'Record actual progress on the project timeline' },
+  // daily field record
+  { key: 'daily.submit', group: 'Daily log', label: 'Submit the daily log of a work stretch (quantities, labour, machines, time lost)' },
+  { key: 'daily.verify', group: 'Daily log', label: 'Verify daily logs (accept, or return for correction)' },
   // issues and grievances
   { key: 'issue.report', group: 'Issues and grievances', label: 'Report issues' },
   { key: 'issue.resolve', group: 'Issues and grievances', label: 'Resolve and re-open issues' },
@@ -63,6 +66,8 @@ const DEFAULTS: Record<Action, Role[]> = {
   'project.settings': ['commissioner'],
   'project.plan': ['pmu_officer', 'commissioner'],
   'project.progress': ['contractor', 'piu_officer', 'aee', 'dee', 'pmu_officer', 'commissioner'],
+  'daily.submit': FIELD,
+  'daily.verify': ['aee', 'dee', 'piu_officer', 'commissioner'],
   'issue.report': FIELD,
   'issue.resolve': OFFICERS,
   'issue.assign': SENIOR,
