@@ -32,10 +32,10 @@ const mLabel = (m: string) => new Date(`${m}-15T00:00:00Z`).toLocaleDateString('
 const days = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
 const cr = (v: number | null | undefined) => (v == null ? '—' : `₹${nf(v, 2)} Cr`);
 
-export function ProjectPage({ focusId }: { focusId?: number | null }) {
+export function ProjectPage({ focusId, initialView }: { focusId?: number | null; initialView?: string }) {
   const [d, setD] = useState<Plan | null>(null);
   const [err, setErr] = useState('');
-  const [view, setView] = useState<View>(focusId ? 'timeline' : 'overview');
+  const [view, setView] = useState<View>((initialView as View) || (focusId ? 'timeline' : 'overview'));
   const [scope, setScope] = useState(0);
   const [tick, setTick] = useState(0);
   const reload = () => setTick((t) => t + 1);

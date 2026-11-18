@@ -21,7 +21,8 @@ import { FontButtons, Icon } from './ui.tsx';
 import { allowed, allowedAny } from './perm.ts';
 import { AdminPage } from './works/AdminPage.tsx';
 import { MapNav, type AreaType } from './MapNav.tsx';
-import { MyTasksButton, MyTasksModal, useMyTasks, type Task } from './works/MyTasks.tsx';
+import { MyTasksButton, MyTasksModal, TodayPage, useMyTasks, type Task } from './works/MyTasks.tsx';
+import { QuickJump } from './works/QuickJump.tsx';
 import { addUtilityIcons, utilIconUrl } from './utilIcons.ts';
 // MapLibre 6 runs its tile parsing in a separate worker file; let Vite bundle it and tell MapLibre where it is.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
@@ -41,8 +42,21 @@ const bboxOf = (coords: unknown): BBox => {
   walk(coords);
   return [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1])), Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))];
 };
-type Tab = 'dashboard' | 'project' | 'map' | 'daily' | 'works' | 'issues' | 'grievances' | 'compliance' | 'utilities' | 'admin';
-const TABS: [Tab, string][] = [['dashboard', 'Dashboard'], ['project', 'Project'], ['map', 'Map'], ['works', 'Works'], ['daily', 'Daily log'], ['issues', 'Issues'], ['grievances', 'Grievances'], ['compliance', 'Compliance'], ['utilities', 'Utilities']];
+type Tab = 'today' | 'dashboard' | 'dreports' | 'pprogress' | 'project' | 'map' | 'daily' | 'works' | 'issues' | 'grievances' | 'compliance' | 'utilities' | 'admin';
+type Hub = 'map' | 'today' | 'works' | 'checks' | 'reports' | 'utilities' | 'admin';
+/** The six hubs of the side rail (Admin below them), each with its pages shown as sub-tabs. */
+const HUBS: { key: Hub; label: string; icon: string; leaves: [Tab, string][] }[] = [
+  { key: 'map', label: 'Map', icon: 'map', leaves: [['map', 'Map']] },
+  { key: 'today', label: 'Today', icon: 'bell', leaves: [['today', 'Today']] },
+  { key: 'works', label: 'Works', icon: 'works', leaves: [['works', 'Work stretches'], ['daily', 'Daily log'], ['project', 'Project timeline']] },
+  { key: 'checks', label: 'Checks', icon: 'compliance', leaves: [['compliance', 'Compliance'], ['issues', 'Issues'], ['grievances', 'Grievances']] },
+  { key: 'reports', label: 'Reports', icon: 'dashboard', leaves: [['dashboard', 'Dashboard'], ['dreports', 'Daily reports'], ['pprogress', 'Project progress']] },
+  { key: 'utilities', label: 'Utilities', icon: 'utilities', leaves: [['utilities', 'Utilities']] },
+  { key: 'admin', label: 'Admin', icon: 'admin', leaves: [['admin', 'Admin']] },
+];
+const hubOf = (t: Tab): Hub => HUBS.find((h) => h.leaves.some(([l]) => l === t))!.key;
+/** Which page a My-tasks item belongs to (for the counts on the rail and the sub-tabs). */
+const TASK_PAGE: Record<string, Tab> = { daily: 'daily', timeline: 'project', project: 'compliance', stretch_compliance: 'compliance', issue: 'issues', grievance: 'grievances' };
 
 /** Which style settings each layer switch has. */
 const STYLE_OF: Record<string, StyleKey[]> = {
@@ -99,7 +113,20 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
   const dprTaken = useRef<Record<string, string>>({});
   const canMake = allowed('stretch.create');
   const isAdmin = allowedAny('admin.users', 'admin.roles', 'admin.settings', 'admin.audit');
-  const tabs: [Tab, string][] = [...TABS.filter(([t]) => !(t === 'grievances' && !allowed('grievance.view'))), ...(isAdmin ? [['admin', 'Admin'] as [Tab, string]] : [])];
+  const hubs = HUBS.map((h) => ({ ...h, leaves: h.leaves.filter(([l]) => (l !== 'grievances' || allowed('grievance.view')) && (l !== 'admin' || isAdmin)) })).filter((h) => h.leaves.length);
+  // the page last opened in each hub (kept on this device)
+  const [lastLeaf, setLastLeaf] = useState<Record<string, Tab>>(() => { try { return JSON.parse(localStorage.getItem('wgl.nav') || '{}'); } catch { return {}; } });
+  useEffect(() => {
+    setLastLeaf((x) => { const n = { ...x, [hubOf(tab)]: tab }; try { localStorage.setItem('wgl.nav', JSON.stringify(n)); } catch { /* private window */ } return n; });
+  }, [tab]);
+  const [jump, setJump] = useState(false);
+  const [more, setMore] = useState(false);
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setJump(true); } };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, []);
+  const openHub = (h: (typeof hubs)[number]) => { const last = lastLeaf[h.key]; setTab(last && h.leaves.some(([l]) => l === last) ? last : h.leaves[0][0]); setMore(false); };
   const changed = useCallback(() => setRefreshKey((k) => k + 1), []);
   const clickRef = useRef<(e: MapMouseEvent) => void>(() => {});
 
@@ -543,6 +570,17 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
     return () => clearTimeout(t);
   }, [q]);
 
+  /** Open the place a My-tasks item points to. */
+  const goTask = (t: Task) => {
+    if (t.link.type === 'project') { setCompLevel('project'); setCompFocus({ key: t.link.key, period: t.link.period }); setTab('compliance'); }
+    else if (t.link.type === 'stretch_compliance') { setCompLevel('stretches'); setTab('compliance'); }
+    else if (t.link.type === 'timeline') { setProjFocus(Number(t.link.id)); setTab('project'); }
+    else if (t.link.type === 'daily') { setDailyView(t.link.view ?? 'verify'); setTab('daily'); }
+    else if (t.link.type === 'issue') { if (t.link.code) setOpenIssue(t.link.code); setTab('issues'); }
+    else if (t.link.type === 'grievance') setTab('grievances');
+  };
+  const leafCount = (l: Tab) => tasks.filter((t) => TASK_PAGE[t.link.type] === l).length;
+
   const pickResult = (r: SearchResult) => {
     setResults([]);
     setQ('');
@@ -563,11 +601,6 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
           <img src="/icon.svg" alt="" width={34} height={34} className="brand-logo" />
           <span className="brand-text"><b>{user.ulb?.app_title || 'UGD Tracker'}</b><small>{user.ulb?.short_name || 'GWMC'} · Underground Drainage</small></span>
         </div>
-        <nav className="main-tabs">
-          {tabs.map(([t, label]) => (
-            <button key={t} title={label} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}><Icon name={t} /><span>{label}</span></button>
-          ))}
-        </nav>
         <div className="search">
           <Icon name="search" />
           <input placeholder="Search work, manhole, ward, road…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" />
@@ -580,7 +613,8 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
           )}
         </div>
         <div className="bar-right">
-          <MyTasksButton tasks={tasks} onOpen={() => setTasksOpen(true)} />
+          <button className="btn jump-btn" onClick={() => setJump(true)} title="Quick jump to a page, work stretch, issue, manhole or ward"><Icon name="search" /><span>Go to</span><kbd>Ctrl K</kbd></button>
+          <MyTasksButton tasks={tasks} onOpen={() => setTab('today')} />
           <FontButtons />
           <div className="user">
             <span className="avatar" aria-hidden>{user.name.split(/\s+/).filter((w) => !/^trial$/i.test(w)).map((w) => w[0]).join('').slice(0, 2).toUpperCase()}</span>
@@ -590,15 +624,43 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
         </div>
       </header>
       {error && <div className="banner" onClick={() => setError('')}>{error} <u>close</u></div>}
-      {tasksOpen && <MyTasksModal tasks={tasks} onClose={() => setTasksOpen(false)} onGo={(t: Task) => {
-        setTasksOpen(false);
-        if (t.link.type === 'project') { setCompLevel('project'); setCompFocus({ key: t.link.key, period: t.link.period }); setTab('compliance'); }
-        else if (t.link.type === 'stretch_compliance') { setCompLevel('stretches'); setTab('compliance'); }
-        else if (t.link.type === 'timeline') { setProjFocus(Number(t.link.id)); setTab('project'); }
-        else if (t.link.type === 'daily') { setDailyView(t.link.view ?? 'verify'); setTab('daily'); }
-        else if (t.link.type === 'issue') setTab('issues');
-        else if (t.link.type === 'grievance') setTab('grievances');
-      }} />}
+      {tasksOpen && <MyTasksModal tasks={tasks} onClose={() => setTasksOpen(false)} onGo={(t: Task) => { setTasksOpen(false); goTask(t); }} />}
+      {jump && (
+        <QuickJump pages={hubs.flatMap((h) => h.leaves.map(([l, label]) => ({ key: l, label, hub: h.label, icon: h.icon })))}
+          onPage={(k) => setTab(k as Tab)} onIssue={(c) => setOpenIssue(c)} onGrievance={() => setTab('grievances')} onClose={() => setJump(false)}
+          onFound={(r) => { if (r.kind === 'Work stretch') setOpenCode(r.label); else { setTab('map'); pickResult(r as SearchResult); } }} />
+      )}
+      <div className="frame">
+        <nav className="rail" aria-label="Main">
+          {hubs.filter((h) => h.key !== 'admin').map((h, i) => {
+            const n = h.key === 'today' ? tasks.length : h.leaves.reduce((a, [l]) => a + leafCount(l), 0);
+            const bad = tasks.some((t) => t.tone === 'bad' && (h.key === 'today' || h.leaves.some(([l]) => TASK_PAGE[t.link.type] === l)));
+            return (
+              <button key={h.key} className={`${hubOf(tab) === h.key ? 'on' : ''} ${i >= 4 ? 'rail-extra' : ''}`} onClick={() => openHub(h)} title={h.label} aria-current={hubOf(tab) === h.key ? 'page' : undefined}>
+                <Icon name={h.icon} /><span>{h.label}</span>{n > 0 && <b className={`badge ${bad ? '' : 'wait'}`}>{n > 99 ? '99+' : n}</b>}
+              </button>
+            );
+          })}
+          <span className="grow" />
+          {hubs.filter((h) => h.key === 'admin').map((h) => (
+            <button key={h.key} className={`rail-extra ${hubOf(tab) === h.key ? 'on' : ''}`} onClick={() => openHub(h)} title={h.label}><Icon name={h.icon} /><span>{h.label}</span></button>
+          ))}
+          <button className={`rail-more ${more ? 'on' : ''}`} onClick={() => setMore(!more)}><Icon name="dots" /><span>More</span></button>
+          {more && (
+            <div className="rail-sheet">
+              {hubs.filter((h, i) => i >= 4).map((h) => <button key={h.key} className={hubOf(tab) === h.key ? 'on' : ''} onClick={() => openHub(h)}><Icon name={h.icon} />{h.label}</button>)}
+            </div>
+          )}
+        </nav>
+        <div className="main-col">
+          {(() => {
+            const cur = hubs.find((h) => h.key === hubOf(tab));
+            return cur && cur.leaves.length > 1 ? (
+              <nav className="subtabs" aria-label={cur.label}>
+                {cur.leaves.map(([l, label]) => <button key={l} className={tab === l ? 'on' : ''} onClick={() => setTab(l)}>{label}{leafCount(l) > 0 && <b className="count">{leafCount(l)}</b>}</button>)}
+              </nav>
+            ) : null;
+          })()}
       <div className="body">
         <div ref={box} className="map" style={{ display: tab === 'map' ? undefined : 'none' }} />
         {meta && <MapNav map={mapObj} active={tab === 'map' && !work && !marking} cityBounds={meta.bounds as BBox} zones={meta.admin_zones}
@@ -734,7 +796,10 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
           <IssuesPage zones={meta.admin_zones} onOpenStretch={setOpenCode} onGoTo={(lon, lat) => goToPoint(lon, lat, 19)} refreshKey={refreshKey} onChanged={changed} isCommissioner={allowed('issue.delete')} />
         )}
         {tab === 'project' && <ProjectPage key={projFocus ?? 0} focusId={projFocus} />}
-        {tab === 'daily' && <DailyPage key={dailyView ?? ''} initialView={dailyView} onOpenStretch={setOpenCode} />}
+        {tab === 'daily' && <DailyPage key={dailyView ?? ''} initialView={dailyView} onOpenStretch={setOpenCode} mode="entries" />}
+        {tab === 'dreports' && <DailyPage mode="reports" onOpenStretch={setOpenCode} />}
+        {tab === 'pprogress' && <ProjectPage key="progress" initialView="progress" />}
+        {tab === 'today' && <TodayPage tasks={tasks} name={user.name} onGo={goTask} />}
         {tab === 'compliance' && meta && (
           <CompliancePage zones={meta.admin_zones} onOpen={setOpenCode} isCommissioner={allowed('compliance.list')} refreshKey={refreshKey} onChanged={changed}
             role={user.role} level={compLevel} setLevel={setCompLevel} focus={compFocus} />
@@ -742,6 +807,8 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
         {openCode && (
           <StretchCard code={openCode} me={user} onClose={() => setOpenCode(null)} onChanged={changed} onLocate={(c) => { setOpenCode(null); locate(c); }} onEditSitePipes={canMake ? editPipes : undefined} />
         )}
+      </div>
+        </div>
       </div>
     </div>
   );

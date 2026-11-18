@@ -200,15 +200,17 @@ function EntryCard({ e, canVerify, onChanged, onEdit, showStretch }: { e: Entry;
 // ---------------- the Daily log tab ----------------
 type View = 'verify' | 'mine' | 'report';
 
-export function DailyPage({ initialView, onOpenStretch }: { initialView?: string; onOpenStretch: (code: string) => void }) {
+export function DailyPage({ initialView, onOpenStretch, mode = 'all' }: { initialView?: string; onOpenStretch: (code: string) => void; mode?: 'all' | 'entries' | 'reports' }) {
   const canVerify = allowed('daily.verify');
   const canSubmit = allowed('daily.submit');
-  const [view, setView] = useState<View>((initialView as View) || (canVerify ? 'verify' : canSubmit ? 'mine' : 'report'));
   const views: [View, string, string][] = [
     ...(canVerify ? [['verify', 'To verify', 'check'] as [View, string, string]] : []),
     ...(canSubmit ? [['mine', 'My entries', 'pencil'] as [View, string, string]] : []),
-    ['report', 'Reports', 'dashboard'],
+    ...(mode === 'all' ? [['report', 'Reports', 'dashboard'] as [View, string, string]] : []),
   ];
+  const [view, setView] = useState<View>((initialView as View) || views[0]?.[0] || 'report');
+  if (mode === 'reports') return <div className="page dash daily-page"><Report /></div>;
+  if (!views.length) return <div className="page"><p className="muted">Daily logs are entered on each work stretch (open it → Daily log). Reports are under Reports → Daily reports.</p></div>;
   return (
     <div className="page dash daily-page">
       <div className="dash-hero no-print">
