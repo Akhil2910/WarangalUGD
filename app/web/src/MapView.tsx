@@ -14,6 +14,7 @@ import { StretchCard, type Card } from './works/StretchCard.tsx';
 import { WorksPage, EMPTY_FILTERS, type Filters } from './works/WorksPage.tsx';
 import { CompliancePage } from './works/CompliancePage.tsx';
 import { IssueDetail, IssuesPage, type IssueRow } from './works/IssuesPage.tsx';
+import { ProjectPage } from './works/ProjectPage.tsx';
 import { WorkPanel, newWork, type Preview, type WorkState } from './works/WorkPanel.tsx';
 import { FontButtons, Icon } from './ui.tsx';
 import { allowed, allowedAny } from './perm.ts';
@@ -40,8 +41,8 @@ const bboxOf = (coords: unknown): BBox => {
   walk(coords);
   return [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1])), Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))];
 };
-type Tab = 'dashboard' | 'map' | 'works' | 'issues' | 'grievances' | 'compliance' | 'utilities' | 'admin';
-const TABS: [Tab, string][] = [['dashboard', 'Dashboard'], ['map', 'Map'], ['works', 'Works'], ['issues', 'Issues'], ['grievances', 'Grievances'], ['compliance', 'Compliance'], ['utilities', 'Utilities']];
+type Tab = 'dashboard' | 'project' | 'map' | 'works' | 'issues' | 'grievances' | 'compliance' | 'utilities' | 'admin';
+const TABS: [Tab, string][] = [['dashboard', 'Dashboard'], ['project', 'Project'], ['map', 'Map'], ['works', 'Works'], ['issues', 'Issues'], ['grievances', 'Grievances'], ['compliance', 'Compliance'], ['utilities', 'Utilities']];
 
 /** Which style settings each layer switch has. */
 const STYLE_OF: Record<string, StyleKey[]> = {
@@ -72,6 +73,8 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
   const [openCode, setOpenCode] = useState<string | null>(null);
   /** Issue opened from its pin on the map (issues reported at a spot have no work stretch to open). */
   const [openIssue, setOpenIssue] = useState<string | null>(null);
+  /** Timeline line to open in the Project tab (from My tasks). */
+  const [projFocus, setProjFocus] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const tasks = useMyTasks(refreshKey);
   const [theme, setTheme] = useState<'stage' | 'compliance'>('stage');
@@ -589,6 +592,7 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
         setTasksOpen(false);
         if (t.link.type === 'project') { setCompLevel('project'); setCompFocus({ key: t.link.key, period: t.link.period }); setTab('compliance'); }
         else if (t.link.type === 'stretch_compliance') { setCompLevel('stretches'); setTab('compliance'); }
+        else if (t.link.type === 'timeline') { setProjFocus(Number(t.link.id)); setTab('project'); }
         else if (t.link.type === 'issue') setTab('issues');
         else if (t.link.type === 'grievance') setTab('grievances');
       }} />}
@@ -740,6 +744,7 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
         {tab === 'issues' && meta && (
           <IssuesPage zones={meta.admin_zones} onOpenStretch={setOpenCode} onGoTo={(lon, lat) => goToPoint(lon, lat, 19)} refreshKey={refreshKey} onChanged={changed} isCommissioner={allowed('issue.delete')} />
         )}
+        {tab === 'project' && <ProjectPage key={projFocus ?? 0} focusId={projFocus} />}
         {tab === 'compliance' && meta && (
           <CompliancePage zones={meta.admin_zones} onOpen={setOpenCode} isCommissioner={allowed('compliance.list')} refreshKey={refreshKey} onChanged={changed}
             role={user.role} level={compLevel} setLevel={setCompLevel} focus={compFocus} />

@@ -19,6 +19,9 @@ export const ACTIONS = [
   { key: 'project.submit', group: 'Compliance', label: 'Submit project compliance proof' },
   { key: 'project.verify', group: 'Compliance', label: 'Verify project compliance' },
   { key: 'project.settings', group: 'Compliance', label: 'Change project dates and the project compliance list' },
+  // project definition and timeline
+  { key: 'project.plan', group: 'Project', label: 'Define the project and its timeline (packages, Gantt, monthly targets, time extensions)' },
+  { key: 'project.progress', group: 'Project', label: 'Record actual progress on the project timeline' },
   // issues and grievances
   { key: 'issue.report', group: 'Issues and grievances', label: 'Report issues' },
   { key: 'issue.resolve', group: 'Issues and grievances', label: 'Resolve and re-open issues' },
@@ -58,6 +61,8 @@ const DEFAULTS: Record<Action, Role[]> = {
   'project.submit': ['contractor', 'piu_officer', 'aee', 'dee', 'commissioner'],
   'project.verify': ['pmu_officer', 'commissioner'],
   'project.settings': ['commissioner'],
+  'project.plan': ['pmu_officer', 'commissioner'],
+  'project.progress': ['contractor', 'piu_officer', 'aee', 'dee', 'pmu_officer', 'commissioner'],
   'issue.report': FIELD,
   'issue.resolve': OFFICERS,
   'issue.assign': SENIOR,

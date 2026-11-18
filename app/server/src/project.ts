@@ -12,6 +12,7 @@ import { audit, HttpError, type SessionUser } from './auth.ts';
 import type { Db } from './db.ts';
 import { iso, type Q } from './works.ts';
 import { has } from './perms.ts';
+import { scheduleTasks } from './schedule.ts';
 import { cur, curPrefix } from './ulbctx.ts';
 /** The current ULB as a plain number (safe to put straight into SQL). */
 const U = () => Number(cur());
@@ -283,6 +284,7 @@ export function registerProject(app: FastifyInstance, db: Db) {
       `SELECT number, category, due_date FROM grievances WHERE assignee = $1 AND ulb_id = ${U()} AND status IN ('new', 'assigned') ORDER BY due_date LIMIT 20`, [u.id]).catch(() => []);
     for (const g of gr) tasks.push({ kind: 'grievance', tone: dateText(g.due_date) && dateText(g.due_date)! < st.today ? 'bad' : 'due', title: `Citizen grievance ${g.number}`, detail: g.category.replace(/_/g, ' '), due: dateText(g.due_date), link: { type: 'grievance', number: g.number } });
     const rank = { bad: 0, wait: 1, due: 2 } as const;
+    tasks.push(...(await scheduleTasks(q, u)));
     tasks.sort((a, b) => rank[a.tone] - rank[b.tone] || String(a.due ?? '9').localeCompare(String(b.due ?? '9')));
     return { tasks };
   });

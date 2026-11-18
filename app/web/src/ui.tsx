@@ -39,6 +39,7 @@ export function FontButtons() {
 /** Simple line icons (24 x 24, drawn with the current text colour). */
 const ICONS: Record<string, string> = {
   dashboard: 'M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z',
+  project: 'M4 5h16v15H4zM4 9h16M8 3v4M16 3v4M7 13h6M10 16h7',
   map: 'M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14',
   works: 'M4 6h16M4 12h16M4 18h10M18 16l2 2-2 2',
   issues: 'M12 3 2 20h20L12 3zM12 10v4M12 17v.1',
