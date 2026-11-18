@@ -21,7 +21,6 @@ import { allowed, allowedAny } from './perm.ts';
 import { AdminPage } from './works/AdminPage.tsx';
 import { MapNav, type AreaType } from './MapNav.tsx';
 import { MyTasksButton, MyTasksModal, useMyTasks, type Task } from './works/MyTasks.tsx';
-import { AreaSummary } from './works/AreaSummary.tsx';
 import { addUtilityIcons, utilIconUrl } from './utilIcons.ts';
 // MapLibre 6 runs its tile parsing in a separate worker file; let Vite bundle it and tell MapLibre where it is.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
@@ -695,21 +694,7 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
                 </div>
               </div>
             )}
-            {boundary && (
-              <div className="boundary-box">
-                <div className="boundary-title"><b>{boundary.name}</b> <span className="muted">{boundary.info}</span></div>
-                <AreaSummary filter={{ ward: boundary.ward, zone: boundary.zone, sewer: boundary.sewer }} />
-                <div className="row-btns">
-                  <button className="btn" onClick={() => fit(boundary.bbox, 16)}>Zoom to</button>
-                  {(boundary.ward || boundary.zone) && (
-                    <button className="btn" onClick={() => { setWorksFilters({ ...EMPTY_FILTERS, ward: boundary.ward ? String(boundary.ward) : '', zone: boundary.zone ?? '' }); setTab('works'); }}>
-                      Works here
-                    </button>
-                  )}
-                  <button className="btn ghost" onClick={() => setBoundary(null)}>Close</button>
-                </div>
-              </div>
-            )}
+            {/* a selected ward / zone is shown on the map only (outline and shade), with no pop-up card */}
           </>
         )}
         {tab === 'map' && marking && !marking.form && (
