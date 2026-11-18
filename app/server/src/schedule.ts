@@ -243,6 +243,118 @@ export async function planWorkbook(q: Q) {
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
+/**
+ * The work-programme template: "How to fill", then the three sheets with example rows (shaded yellow) for two packages,
+ * dated from the project's start month. Uploading it unchanged works (the examples pass every check).
+ */
+export async function planTemplate(start: string) {
+  const NAVY = 'FF0E1E45', BLUE = 'FF2563EB', EX = 'FFFFF8E1';
+  const y0 = Number(start.slice(0, 4)), m0 = Number(start.slice(5, 7)) - 1;
+  const first = (m: number) => new Date(Date.UTC(y0, m0 + m, 1));
+  const last = (m: number) => new Date(Date.UTC(y0, m0 + m + 1, 0));
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'UGD Tracker';
+
+  const help = wb.addWorksheet('How to fill', { properties: { tabColor: { argb: BLUE } } });
+  help.columns = [{ width: 4 }, { width: 120 }];
+  const lines: [string, string][] = [
+    ['h', 'UGD Tracker · Work programme template'],
+    ['', 'Fill the three sheets, save as Excel Workbook (.xlsx), then upload it: Project → Plan → Upload Excel. You see what will change before anything is saved.'],
+    ['', 'The yellow rows are EXAMPLES. Replace them with your own programme, or delete them.'],
+    ['h', '1. Packages (leave empty if the whole project is one contract)'],
+    ['', 'Code: up to 12 letters or digits, e.g. PKG-1. It links Activities and Monthly targets to the package.'],
+    ['', 'Agreement date, Appointed date (work start) and Completion date as per the agreement. Value (Rs crore): contract value, e.g. 214.2.'],
+    ['', 'Wards: ward numbers separated by commas, e.g. 1, 2, 3. Work done in these wards counts as this package’s actual progress.'],
+    ['h', '2. Activities (the Gantt timeline)'],
+    ['', 'Package: the package code, or empty for a whole-project line.'],
+    ['', 'Code: your own numbering (1, 1.1, 1.2 …). Keep it the same when you upload again: lines are matched by Package + Code.'],
+    ['', 'Parent: the Code of the phase the line belongs to (empty for a top-level phase).'],
+    ['', 'Type: Phase, Activity or Milestone (choose from the list). A phase without dates spans its activities. A milestone needs only Planned finish.'],
+    ['', 'Weight: share of the work used for “% work done” (bigger = more important). Default 1; milestones 0.'],
+    ['h', '3. Monthly targets (the planned S-curve)'],
+    ['', 'Package: the package code, or empty for the whole project. If only packages have targets, the whole project is their total.'],
+    ['', 'Month: any date in that month, or text like “Apr 2026”.'],
+    ['', 'Quantities are FOR THAT MONTH ONLY, not running totals: Pipe km, Manholes, House connections, Road restored km. Leave a cell empty if nothing is planned.'],
+    ['h', 'Uploading again'],
+    ['', 'Changed lines are updated, new lines added, lines no longer in the file removed. Actual dates and % done already recorded are kept.'],
+    ['', 'The original plan (baseline) is kept unless you tick “Make these dates the new original plan”, so slippage stays visible.'],
+    ['', 'Project → Plan → Download current plan gives the same sheets filled with what is saved now, to edit and upload again.'],
+    ['h', 'Dates'],
+    ['', 'Excel dates, or written as 2026-03-31 or 31-03-2026.'],
+  ];
+  for (const [k, t] of lines) {
+    const r = help.addRow(['', t]);
+    r.getCell(2).alignment = { wrapText: true, vertical: 'top' };
+    if (k === 'h') { r.getCell(2).font = { bold: true, size: 13, color: { argb: NAVY } }; r.height = 24; }
+  }
+  help.getRow(1).getCell(2).font = { bold: true, size: 16, color: { argb: BLUE } };
+
+  const sheet = (name: string, cols: string[], widths: number[], rows: unknown[][]) => {
+    const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 1 }] });
+    ws.columns = cols.map((c, i) => ({ header: c, width: widths[i] }));
+    const h = ws.getRow(1);
+    h.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    h.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+    h.height = 22;
+    for (const r of rows) {
+      const row = ws.addRow(r);
+      for (let n = 1; n <= cols.length; n++) row.getCell(n).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: EX } };
+    }
+    return ws;
+  };
+
+  const wsP = sheet(SHEETS.packages, PKG_COLS, [12, 28, 26, 16, 16, 16, 16, 16, 40], [
+    ['PKG-1', 'Package 1 (East)', '[Contractor name]', 'AG/UGD/01', first(-1), first(0), last(23), 214.2, '1, 2, 3, 4, 5, 6, 7, 8, 9, 10'],
+    ['PKG-2', 'Package 2 (West)', '[Contractor name]', 'AG/UGD/02', first(0), first(1), last(24), 198.3, '11, 12, 13, 14, 15, 16, 17, 18, 19, 20'],
+  ]);
+  for (const c of [5, 6, 7]) wsP.getColumn(c).numFmt = 'dd-mmm-yyyy';
+  wsP.getColumn(8).numFmt = '0.00';
+
+  const acts: unknown[][] = [];
+  for (const [pkg, off] of [['PKG-1', 0], ['PKG-2', 1]] as const) {
+    const s = (m: number) => first(m + off), e = (m: number) => last(m + off);
+    acts.push(
+      [pkg, '1', '', 'Survey, design and approvals', 'Phase', null, null, null],
+      [pkg, '1.1', '1', 'Topographic and utility survey', 'Activity', s(0), e(2), 1],
+      [pkg, '1.2', '1', 'Network design and drawings', 'Activity', s(2), e(4), 1],
+      [pkg, '1.3', '1', 'Design approval', 'Milestone', null, e(4), 0],
+      [pkg, '1.4', '1', 'Road-cutting and tree permissions', 'Activity', s(1), e(5), 1],
+      [pkg, '2', '', 'Sewer network', 'Phase', null, null, null],
+      [pkg, '2.1', '2', 'Trunk sewers', 'Activity', s(5), e(14), 4],
+      [pkg, '2.2', '2', 'Lateral sewers and manholes', 'Activity', s(6), e(19), 5],
+      [pkg, '2.3', '2', 'House service connections', 'Activity', s(9), e(21), 3],
+      [pkg, '2.4', '2', '50% of network laid', 'Milestone', null, e(12), 0],
+      [pkg, '3', '', 'Pumping stations', 'Phase', null, null, null],
+      [pkg, '3.1', '3', 'Civil works', 'Activity', s(6), e(15), 2],
+      [pkg, '3.2', '3', 'Electro-mechanical works', 'Activity', s(14), e(20), 2],
+      [pkg, '4', '', 'Road restoration', 'Activity', s(8), e(22), 2],
+      [pkg, '5', '', 'Testing, commissioning and handover', 'Phase', null, null, null],
+      [pkg, '5.1', '5', 'Hydraulic and manhole tests', 'Activity', s(10), e(22), 1],
+      [pkg, '5.2', '5', 'Package completed', 'Milestone', null, e(23), 0],
+    );
+  }
+  acts.push(['', 'M1', '', 'STP trial run', 'Milestone', null, last(21), 0], ['', 'M2', '', 'Commissioning and handover', 'Milestone', null, last(24), 0]);
+  const wsA = sheet(SHEETS.activities, ACT_COLS, [12, 8, 8, 44, 12, 16, 16, 10], acts);
+  for (let r = 2; r <= 500; r++) {
+    wsA.getCell(`E${r}`).dataValidation = { type: 'list', allowBlank: true, formulae: ['"Phase,Activity,Milestone"'], showErrorMessage: true, errorTitle: 'Type', error: 'Choose Phase, Activity or Milestone.' };
+    wsA.getCell(`F${r}`).numFmt = 'dd-mmm-yyyy';
+    wsA.getCell(`G${r}`).numFmt = 'dd-mmm-yyyy';
+  }
+
+  // example targets: a gentle S-curve over 18 months per package
+  const curve = (n: number, total: number) => { const w = Array.from({ length: n }, (_, i) => Math.sin((Math.PI * (i + 0.5)) / n)); const t = w.reduce((a, b) => a + b); return w.map((x) => (x / t) * total); };
+  const tg: unknown[][] = [];
+  for (const [pkg, from, km, mh, hsc, road] of [['PKG-1', 5, 72, 2900, 16000, 66], ['PKG-2', 6, 64, 2600, 14000, 58]] as const) {
+    const [a, b, c, d] = [curve(18, km), curve(18, mh), curve(18, hsc), curve(18, road)];
+    for (let i = 0; i < 18; i++) tg.push([pkg, first(from + i), +a[i].toFixed(2), Math.round(b[i]), i >= 3 ? Math.round(c[i] * 1.2) : null, i >= 3 ? +d[i].toFixed(2) : null]);
+  }
+  const wsT = sheet(SHEETS.targets, TGT_COLS, [12, 14, 12, 12, 18, 18], tg);
+  for (let r = 2; r <= 500; r++) wsT.getCell(`B${r}`).numFmt = 'mmm yyyy';
+  wsT.getColumn(3).numFmt = '0.00';
+  wsT.getColumn(6).numFmt = '0.00';
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
 const cellText = (v: ExcelJS.CellValue): string => {
   if (v == null) return '';
   if (v instanceof Date) return v.toISOString().slice(0, 10);
@@ -566,10 +678,16 @@ export function registerSchedule(app: FastifyInstance, db: Db) {
       WHERE e.ulb_id = ${U()} ORDER BY e.at DESC, e.id DESC LIMIT 200`)).map((e) => ({ ...e, id: Number(e.id), at: iso(e.at) })),
   }));
 
+  const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   app.get('/api/project/plan/workbook.xlsx', async (_req, reply) => {
     const buf = await planWorkbook(q);
-    return reply.header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      .header('content-disposition', 'attachment; filename="work-programme.xlsx"').send(buf);
+    return reply.header('content-type', XLSX).header('content-disposition', 'attachment; filename="work-programme.xlsx"').send(buf);
+  });
+  // the empty template with instructions and example rows (anyone signed in may download it)
+  app.get('/api/project/plan/template.xlsx', async (_req, reply) => {
+    const [s] = await q<{ work_start: unknown }>(`SELECT work_start FROM project_settings WHERE ulb_id = ${U()}`);
+    const buf = await planTemplate(d10(s?.work_start) ?? indiaDate());
+    return reply.header('content-type', XLSX).header('content-disposition', 'attachment; filename="work-programme-template.xlsx"').send(buf);
   });
 
   app.post<{ Querystring: { apply?: string; rebaseline?: string } }>('/api/project/plan/import', { bodyLimit: 20 * 1024 * 1024 }, async (req) => {

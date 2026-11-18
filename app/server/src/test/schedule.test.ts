@@ -221,6 +221,20 @@ await check('history of plan changes; the workbook downloads with the saved plan
   assert.equal(wb.getWorksheet('Activities')!.rowCount, 6); // header + 5 (Commissioning removed)
 });
 
+await check('the template downloads for anyone, has instructions and examples, and passes the upload check as it is', async () => {
+  const r = await viewer.get('/api/project/plan/template.xlsx');
+  assert.equal(r.statusCode, 200);
+  assert.match(String(r.headers['content-disposition']), /work-programme-template\.xlsx/);
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(r.rawPayload as unknown as ArrayBuffer);
+  assert.deepEqual(wb.worksheets.map((w) => w.name), ['How to fill', 'Packages', 'Activities', 'Monthly targets']);
+  assert.equal(wb.getWorksheet('Activities')!.actualRowCount, 37); // header + 36 example lines (empty rows below carry the Type list)
+  const pre = (await pmu.upload('/api/project/plan/import', r.rawPayload as Buffer)).json();
+  assert.equal(pre.ok, true, JSON.stringify(pre.errors));
+  assert.equal(pre.errors.length, 0);
+  assert.ok(pre.changes.targets.months >= 18);
+});
+
 console.log(`\n${passed} checks passed (${process.env.DATABASE_URL ? 'postgres' : 'pglite'})`);
 await app.close();
 process.exit(0);

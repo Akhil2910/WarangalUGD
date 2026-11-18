@@ -87,7 +87,7 @@ function Overview({ d, s, scope, setScope, go }: { d: Plan; s: Summary; scope: n
       {empty && (
         <section className="dsec pj-empty">
           <b>The project plan is not set up yet.</b>
-          <span className="muted">{d.can.plan ? 'Open Plan: fill in the project details and packages, then download the Excel work programme, fill it in and upload it.' : 'The PMU or Commissioner sets up the plan (Project → Plan).'}</span>
+          <span className="muted">{d.can.plan ? 'Open Plan: fill in the project details, download the Excel template, fill it in and upload it.' : 'The PMU or Commissioner sets up the plan (Project → Plan).'}</span>
           {d.can.plan && <button className="btn primary" onClick={() => go('plan')}>Set up the plan</button>}
         </section>
       )}
@@ -539,9 +539,10 @@ function PlanView({ d, onChanged }: { d: Plan; onChanged: () => void }) {
     <>
       <section className="dsec">
         <div className="dsec-head">
-          <div className="dsec-titles"><span className="dsec-ico"><Icon name="compliance" /></span><div><h3>Work programme (Excel)</h3><div className="dsec-sub">Packages, timeline and monthly targets in one Excel file. Download it (with what is saved now), fill it in, upload it. You see the changes before they are saved.</div></div></div>
+          <div className="dsec-titles"><span className="dsec-ico"><Icon name="compliance" /></span><div><h3>Work programme (Excel)</h3><div className="dsec-sub">Packages, timeline and monthly targets in one Excel file. Start from the template (instructions and example rows inside), or download the current plan to change it. Upload it: you see the changes before they are saved.</div></div></div>
           <div className="row-btns">
-            <a className="btn" href="/api/project/plan/workbook.xlsx">Download Excel</a>
+            <a className="btn" href="/api/project/plan/template.xlsx" download>Download template</a>
+            {(d.activities.length > 0 || d.packages.length > 0) && <a className="btn" href="/api/project/plan/workbook.xlsx" download>Download current plan</a>}
             {d.can.plan && <label className={`btn primary ${busy ? 'disabled' : ''}`}>{busy ? 'Reading…' : 'Upload Excel'}<input type="file" hidden accept=".xlsx" disabled={busy} onChange={async (e) => {
               const file = e.target.files?.[0]; e.target.value = '';
               if (!file) return;
