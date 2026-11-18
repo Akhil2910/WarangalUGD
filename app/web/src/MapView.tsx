@@ -13,7 +13,7 @@ import { StyleModal } from './works/StyleModal.tsx';
 import { StretchCard, type Card } from './works/StretchCard.tsx';
 import { WorksPage, EMPTY_FILTERS, type Filters } from './works/WorksPage.tsx';
 import { CompliancePage } from './works/CompliancePage.tsx';
-import { IssuesPage, type IssueRow } from './works/IssuesPage.tsx';
+import { IssueDetail, IssuesPage, type IssueRow } from './works/IssuesPage.tsx';
 import { WorkPanel, newWork, type Preview, type WorkState } from './works/WorkPanel.tsx';
 import { FontButtons, Icon } from './ui.tsx';
 import { allowed, allowedAny } from './perm.ts';
@@ -70,6 +70,8 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
   const drainsLoaded = useRef(false);
   const [marking, setMarking] = useState<{ layer: string; pts: [number, number][]; form: boolean } | null>(null);
   const [openCode, setOpenCode] = useState<string | null>(null);
+  /** Issue opened from its pin on the map (issues reported at a spot have no work stretch to open). */
+  const [openIssue, setOpenIssue] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const tasks = useMyTasks(refreshKey);
   const [theme, setTheme] = useState<'stage' | 'compliance'>('stage');
@@ -284,9 +286,11 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.getLayer('wards-sel')) return;
-    map.setFilter('wards-sel', ['==', ['get', 'ward'], boundary?.type === 'wards' ? boundary.key : -1] as never);
-    map.setFilter('admin-sel', ['==', ['get', 'zone_id'], boundary?.type === 'admin' ? boundary.key : ''] as never);
-    map.setFilter('sewer-sel', ['==', ['get', 'name'], boundary?.type === 'sewerzones' ? boundary.key : ''] as never);
+    for (const sfx of ['', '-fill']) {
+      if (map.getLayer(`wards-sel${sfx}`)) map.setFilter(`wards-sel${sfx}`, ['==', ['get', 'ward'], boundary?.type === 'wards' ? boundary.key : -1] as never);
+      if (map.getLayer(`admin-sel${sfx}`)) map.setFilter(`admin-sel${sfx}`, ['==', ['get', 'zone_id'], boundary?.type === 'admin' ? boundary.key : ''] as never);
+      if (map.getLayer(`sewer-sel${sfx}`)) map.setFilter(`sewer-sel${sfx}`, ['==', ['get', 'name'], boundary?.type === 'sewerzones' ? boundary.key : ''] as never);
+    }
   }, [boundary]);
 
   const fit = (b: BBox, maxZoom = 18) => {
@@ -461,7 +465,10 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
     const popup = (html: string) => new maplibregl.Popup({ maxWidth: '340px' }).setLngLat(e.lngLat).setHTML(html).addTo(map);
     const stretch = feats.find((f) => f.layer.id === 'site-stretch-casing') ?? feats.find((f) => f.layer.id === 'site-pipes' && f.properties.stretch);
     const top = feats[0];
-    if (top?.layer.id === 'issue-pins') return void setOpenCode(String(top.properties.stretch));
+    // an issue pin wins even when a manhole or pipe is drawn over it; a small box makes it easy to tap
+    const pinLayers = ['issue-pins'].filter((l) => map.getLayer(l) && map.getLayoutProperty(l, 'visibility') !== 'none');
+    const pin = pinLayers.length ? map.queryRenderedFeatures([[e.point.x - 8, e.point.y - 8], [e.point.x + 8, e.point.y + 8]], { layers: pinLayers })[0] : undefined;
+    if (pin) return void setOpenIssue(String(pin.properties.code));
     if (stretch) return void setOpenCode(String(stretch.properties.code ?? stretch.properties.stretch));
     if (!top) return selectBoundary(e);
     if (top.layer.id === 'site-manholes') {
@@ -722,6 +729,7 @@ export function MapView({ user, onSignOut }: { user: User; onSignOut: () => void
         {reporting && reporting !== 'pick' && (
           <ReportIssueModal at={reporting.at} onDone={(code) => { setReporting(null); if (code) { changed(); setError(''); setNotice(`Issue ${code} reported.`); } }} />
         )}
+        {openIssue && <IssueDetail code={openIssue} onClose={() => setOpenIssue(null)} onChanged={changed} onOpenStretch={(c) => { setOpenIssue(null); setOpenCode(c); }} />}
         {styleKeys && <StyleModal keys={styleKeys} styles={styles} onChange={changeStyle} onClose={() => setStyleKeys(null)} />}
         {notice && <div className="toast" onClick={() => setNotice('')}>{notice}</div>}
         {tab === 'map' && work && <WorkPanel w={work} set={ws} onUndo={workUndo} onSave={workSave} onCancel={() => { setWork(null); changed(); }} zoom={zoom} />}

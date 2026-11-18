@@ -228,9 +228,9 @@ export function IssueDetail({ code, onClose, onChanged, onOpenStretch }: { code:
             {i.overdue && <span className="pill" style={{ background: '#7f1d1d', color: '#fff' }}>Overdue</span>}
           </div>
           <p className="small">
-            {i.count > 1 && <>Count: <b>{i.count}</b> · </>}Stretch{' '}
-            {i.stretch_code && onOpenStretch ? <button className="link" onClick={() => { onOpenStretch(i.stretch_code!); onClose(); }}>{i.stretch_code}</button> : i.stretch_code}
-            {' '}· ward {i.ward} · {i.admin_zone} · {i.source === 'manual' ? `reported by ${i.created_by_name}` : i.source === 'status' ? 'raised from the stretch status' : 'raised from compliance'}
+            {i.count > 1 && <>Count: <b>{i.count}</b> · </>}
+            {i.stretch_code ? <>Work stretch{' '}{onOpenStretch ? <button className="link" onClick={() => { onOpenStretch(i.stretch_code!); onClose(); }}>{i.stretch_code}</button> : i.stretch_code}</> : 'At a spot on the map'}
+            {' '}· Ward {i.ward}{i.admin_zone ? ` · Zone ${i.admin_zone}` : ''} · {i.source === 'manual' ? `reported by ${i.created_by_name}` : i.source === 'status' ? 'raised from the stretch status' : 'raised from compliance'}
             {' '}· due {fmtDate(i.due_date)}{i.assignee_name && ` · assigned to ${i.assignee_name}`}
           </p>
           {i.remark && <p>“{i.remark}”</p>}

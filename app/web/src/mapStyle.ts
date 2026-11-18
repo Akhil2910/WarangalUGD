@@ -18,9 +18,9 @@ export const LAYER_GROUPS = [
   { key: 'dpr', label: 'DPR pipes and manholes (plan)', default: true, layers: ['pipes-major', 'pipes', 'manholes', 'manhole-labels', 'stations', 'station-labels'] },
   { key: 'drawn', label: 'Drawn pipes and manholes', default: true, layers: ['site-pipes', 'site-manholes', 'site-mh-labels'] },
   { key: 'issues', label: 'Issues', default: true, layers: ['issue-pins'] },
-  { key: 'wards', label: 'Ward boundaries', default: true, layers: ['wards-fill', 'wards-line', 'ward-labels', 'wards-sel'] },
-  { key: 'admin', label: 'GWMC zone boundaries', default: false, layers: ['admin-fill', 'admin-line', 'admin-labels', 'admin-sel'] },
-  { key: 'sewerzones', label: 'Sewerage zone boundaries', default: false, layers: ['sewer-fill', 'sewer-zones-line', 'sewer-labels', 'sewer-sel'] },
+  { key: 'wards', label: 'Ward boundaries', default: true, layers: ['wards-fill', 'wards-line', 'ward-labels', 'wards-sel-fill', 'wards-sel'] },
+  { key: 'admin', label: 'GWMC zone boundaries', default: false, layers: ['admin-fill', 'admin-line', 'admin-labels', 'admin-sel-fill', 'admin-sel'] },
+  { key: 'sewerzones', label: 'Sewerage zone boundaries', default: false, layers: ['sewer-fill', 'sewer-zones-line', 'sewer-labels', 'sewer-sel-fill', 'sewer-sel'] },
 ] as const;
 
 /** One pipe colour; the line gets wider with the diameter. */
@@ -82,6 +82,10 @@ export function buildStyle(meta: Meta, origin: string): StyleSpecification {
       { id: 'admin-line', type: 'line', source: 'admin', layout: { visibility: 'none' }, paint: { 'line-color': '#fb923c', 'line-width': 3, 'line-opacity': 0.9 } },
       { id: 'sewer-zones-line', type: 'line', source: 'sewerzones', layout: { visibility: 'none' }, paint: { 'line-color': '#22d3ee', 'line-width': 2.5, 'line-dasharray': [3, 2] } },
       { id: 'wards-line', type: 'line', source: 'wards', paint: { 'line-color': '#fde047', 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.8, 16, 2], 'line-opacity': 0.85 } },
+      // the selected area: a light shade inside its outline (under the works and pipes)
+      { id: 'sewer-sel-fill', type: 'fill', source: 'sewerzones', layout: { visibility: 'none' }, filter: ['==', ['get', 'name'], ''], paint: { 'fill-color': '#22d3ee', 'fill-opacity': 0.16 } },
+      { id: 'admin-sel-fill', type: 'fill', source: 'admin', layout: { visibility: 'none' }, filter: ['==', ['get', 'zone_id'], ''], paint: { 'fill-color': '#fb923c', 'fill-opacity': 0.16 } },
+      { id: 'wards-sel-fill', type: 'fill', source: 'wards', filter: ['==', ['get', 'ward'], -1], paint: { 'fill-color': '#fde047', 'fill-opacity': 0.18 } },
       { id: 'sewer-sel', type: 'line', source: 'sewerzones', layout: { visibility: 'none' }, filter: ['==', ['get', 'name'], ''], paint: { 'line-color': '#22d3ee', 'line-width': 6 } },
       { id: 'admin-sel', type: 'line', source: 'admin', layout: { visibility: 'none' }, filter: ['==', ['get', 'zone_id'], ''], paint: { 'line-color': '#fb923c', 'line-width': 7 } },
       { id: 'wards-sel', type: 'line', source: 'wards', filter: ['==', ['get', 'ward'], -1], paint: { 'line-color': '#fde047', 'line-width': 6 } },
